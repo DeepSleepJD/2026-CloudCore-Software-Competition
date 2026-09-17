@@ -1,0 +1,1 @@
+"""Standard-library competition agent."""

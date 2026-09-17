@@ -1,0 +1,13 @@
+{
+  "pvp_mode": "auto",
+  "tower_loadout": ["rocket", "gatling", "rocket"],
+  "initial_towers": 2,
+  "wall_limit": 6,
+  "return_margin": 6,
+  "sale_batch": 8,
+  "task_llm_budget": 12,
+  "task_cmd_budget": 16,
+  "state_dir": ".zk_state",
+  "tower_offsets": [],
+  "wall_offsets": []
+}
