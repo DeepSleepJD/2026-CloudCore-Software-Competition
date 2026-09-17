@@ -164,7 +164,7 @@ class TaskRunner:
                     if result:
                         return result
         if self.llm_calls >= self.config.task_llm_budget:
-            return {}
+            return {"exhausted": True}
         self.llm_calls += 1
         self.pending = "llm"
         return {"prompt": SYSTEM + "\n" + json.dumps({

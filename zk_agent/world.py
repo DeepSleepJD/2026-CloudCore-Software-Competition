@@ -31,6 +31,11 @@ def command(action, targets=None, **kwargs):
     return result
 
 
+def action_key(uid, value):
+    return (uid, value["action"], value.get("name", ""),
+            tuple((p["x"], p["y"]) for p in value.get("targetPos", [])))
+
+
 @dataclass
 class Path:
     step: tuple[int, int]
@@ -74,6 +79,8 @@ class World:
         self.reserved = set()
         self.commands = {}
         self.used = set()
+        self.reasons = {}
+        self.blocked_actions = set()
 
     def inside(self, p):
         return 0 <= p[0] < self.width and 0 <= p[1] < self.height
@@ -85,9 +92,10 @@ class World:
     def home_threats(self):
         return [r for r in self.robots if r.get("targetTeam", self.team) == self.team]
 
-    def path(self, actor, goals, extra_blocked=()):
+    def path(self, actor, goals, extra_blocked=(), ignore_blocked=()):
         start = pos(actor)
         blocked = self.blocked | self.reserved | set(extra_blocked)
+        blocked.difference_update(ignore_blocked)
         blocked.discard(start)
         goals = {g for g in goals if self.inside(g) and g not in blocked}
         if not goals:
@@ -112,10 +120,12 @@ class World:
         target_key = uid if key is None else key
         if uid in self.used or str(target_key) in self.commands:
             return False
+        if action_key(target_key, value) in self.blocked_actions:
+            return False
         if value["action"] == "move":
             p = value["targetPos"][0]
             dest = (p["x"], p["y"])
-            if dest in self.blocked or dest in self.reserved or distance(pos(actor), dest) != 1:
+            if not self.inside(dest) or dest in self.blocked or dest in self.reserved or distance(pos(actor), dest) != 1:
                 return False
             self.reserved.add(dest)
         self.commands[str(target_key)] = value

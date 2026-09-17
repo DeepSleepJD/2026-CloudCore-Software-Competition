@@ -11,6 +11,9 @@ class Config:
     wall_limit: int = 6
     return_margin: int = 6
     sale_batch: int = 8
+    third_tower_reserve: int = 25
+    enable_raids: bool = True
+    idle_replan_rounds: int = 3
     task_llm_budget: int = 12
     task_cmd_budget: int = 16
     state_dir: str = ".zk_state"
@@ -28,8 +31,10 @@ class Config:
         if any(t not in {"rocket", "gatling", "railgun"} for t in obj.tower_loadout):
             raise ValueError("unknown tower type")
         if min(obj.wall_limit, obj.return_margin, obj.sale_batch,
-               obj.task_llm_budget, obj.task_cmd_budget) < 0:
+               obj.task_llm_budget, obj.task_cmd_budget, obj.third_tower_reserve) < 0:
             raise ValueError("budgets must be nonnegative")
+        if obj.idle_replan_rounds < 1:
+            raise ValueError("idle_replan_rounds must be positive")
         for pair in obj.tower_offsets + obj.wall_offsets:
             if len(pair) != 2 or any(type(n) is not int for n in pair):
                 raise ValueError("layout offsets must be integer pairs")
