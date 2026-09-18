@@ -1,9 +1,11 @@
 """Daytime construction/economy and one-operator nighttime defence."""
 import re
+import traceback
 
 from .model import World, Layout, ORES, command, distance, neighbours, wire
 from .navigation import paths
 from .combat import rocket_targets, rocket_wall_targets
+from .tasklog import rlog
 
 
 class Planner:
@@ -195,25 +197,36 @@ class Planner:
         task = self.task
         state = task.get("state", "idle")
         if state == "go":
+            point = task.get("point")
             if self.w.phase_task:
                 task["state"] = "active"
                 task.setdefault("accepted_round", self.w.round)
+                rlog(self.w.round, f"go→active: 已接受任务 类型={task.get('type')} "
+                                   f"任务点={point} 任务文本前200字: {self.w.phase_task[:200]!r}")
                 return False
-            point = task.get("point")
             info = next((t for t in self.w.tasks if t["p"] == point), None)
             if point is None or info is None or not (info["valid"] and info["cooldown"] == 0):
+                rlog(self.w.round, f"go→idle: 任务点失效(点={point} 信息={info!r}),任务放弃")
                 task["state"] = "idle"
                 return False
             if task.get("accepts", 0) >= 3:
+                rlog(self.w.round, "go→idle: acceptTask已尝试3次仍未见phaseTask,放弃本轮任务")
                 task["state"] = "idle"
                 return False
             if self.approach(actor, point, command("acceptTask")):
                 cmd = self.commands.get(str(actor.id)) or {}
                 if cmd.get("action") == "acceptTask":
                     task["accepts"] = task.get("accepts", 0) + 1
+                    rlog(self.w.round, f"go: 发送acceptTask(第{task['accepts']}次), "
+                                       f"开拓者距任务点{distance(actor.p, point)}")
+                else:
+                    rlog(self.w.round, f"go: 向任务点{point}移动中,距离={distance(actor.p, point)}")
                 return True
             task["go_fails"] = task.get("go_fails", 0) + 1
+            rlog(self.w.round, f"go: 无法接近任务点{point}(第{task['go_fails']}次),"
+                               f"可能被阻挡/禁行")
             if task["go_fails"] > 5:
+                rlog(self.w.round, "go→idle: 连续寻路失败,放弃本轮任务")
                 task["state"] = "idle"
             return False
         if state != "idle" or self.w.phase_task:
@@ -224,13 +237,20 @@ class Planner:
         target = min(ready, key=lambda t: (distance(actor.p, t["p"]), t["type"]))
         budget = 6 if target["type"] in task.get("known", []) else 20
         remaining = 70 - self.w.day_tick
-        if remaining <= distance(actor.p, target["p"]) + distance(target["p"], self.layout.operator) + budget:
+        d_go = distance(actor.p, target["p"])
+        d_back = distance(target["p"], self.layout.operator)
+        if remaining <= d_go + d_back + budget:
+            rlog(self.w.round, f"idle: 有可接任务{target['p']}但时间Guard拒绝: "
+                               f"剩余白天={remaining} < 去{d_go}+回{d_back}+预算{budget}")
             return False
         # Keep retry counters when re-picking the same point across idle resets.
         task.update({"state": "go", "type": target["type"], "point": target["p"],
                      "timeout": target["timeout"],
                      "accepts": task.get("accepts", 0) if task.get("point") == target["p"] else 0,
                      "go_fails": task.get("go_fails", 0) if task.get("point") == target["p"] else 0})
+        rlog(self.w.round, f"idle→go: 选定任务点{target['p']} 类型={target['type']} "
+                           f"超时={target['timeout']} 剩余白天={remaining} "
+                           f"去{d_go}+回{d_back}+预算{budget},开拓者位置={actor.p}")
         return self.task_day(actor)
 
     def retreat(self, actor):
@@ -318,6 +338,9 @@ class Planner:
                 continue
             return_margin = distance(actor.p, self.layout.operator) + 8
             if 70 - self.w.day_tick <= return_margin:
+                if self.task.get("state") in ("go", "active"):
+                    rlog(self.w.round, f"黄昏Guard触发(剩{70 - self.w.day_tick}回合,"
+                                       f"margin={return_margin}): 弃任务返岗,离开任务点自动结束任务")
                 self.operate(actor)
                 continue
             if self.task_day(actor):
@@ -350,10 +373,13 @@ class TaskSolver:
     def step(self, world, response):
         task = self.task
         if task.get("abandoned"):
+            rlog(world.round, "active: 任务已标记弃坑,等待开拓者走离任务点")
             return response
         if not world.phase_task:
             if task.get("state") == "active":
-                self._record()
+                self._record(world.round)
+            else:
+                rlog(world.round, f"phaseTask为空且状态={task.get('state')},无活动任务")
             # Keep type/known so the next task of the same kind can replay the recipe.
             task.update({"state": "idle", "outputs": [], "cmd": None, "stuck": 0,
                          "submits": 0, "guess": "", "abandoned": False})
@@ -364,27 +390,41 @@ class TaskSolver:
             task.update({"state": "active", "phase": world.phase_task,
                          "accepted_round": task.get("accepted_round", world.round),
                          "outputs": [], "cmd": None, "stuck": 0, "submits": 0})
+            rlog(world.round, f"任务激活: 类型={task.get('type')} 接取回合={task['accepted_round']} "
+                              f"超时={task.get('timeout')} 全文:\n---------- phaseTask ----------\n"
+                              f"{world.phase_task}\n------------------------------")
         pioneer = next((r for r in world.actors if r.kind == "pioneer"), None)
         if pioneer is None:
+            rlog(world.round, "开拓者不存在(可能阵亡),任务记忆清空")
             task.clear()
             task["state"] = "idle"
             return response
         if str(pioneer.id) in response["roleCommandMap"]:
-            # Planner already steered the pioneer this round (dusk walk, retreat);
-            # its command wins — submitting here would silently discard the move.
+            action = response["roleCommandMap"][str(pioneer.id)].get("action")
+            rlog(world.round, f"active: 开拓者本回合已被Planner调度(action={action}),"
+                              f"任务动作让位(黄昏返岗/撤退)")
             return response
         if task.get("submitted_round") == world.round - 1:
+            rlog(world.round, f"active: 上回合已提交答案 {task.get('guess', '')[:80]!r},等待平台判定")
             return response
         spent = world.round - task["accepted_round"]
         budget = 0.6 * task.get("timeout") if task.get("timeout") else 35
         parsed = self._parse(world.llm_resp)
+        rlog(world.round, f"active: 耗时={spent} 预算={budget:.0f} 提交次数={task.get('submits', 0)} "
+                          f"stuck={task.get('stuck', 0)} llmResp前300字: {world.llm_resp[:300]!r} "
+                          f"lastCmd退出码={world.last_cmd.get('code')!r} "
+                          f"输出前200字: {world.last_cmd.get('out', '')[:200]!r}")
         if spent > budget:
             guess = task.get("guess") or (parsed[1] if parsed and parsed[0] == "ANSWER" else "")
+            rlog(world.round, f"超预算({spent}>{budget:.0f}),强制提交最佳猜测: {guess[:100]!r}")
             return self._submit(world, response, pioneer, guess or world.phase_task)
         if parsed and parsed[0] == "ANSWER" and (parsed[1] != task.get("guess") or not task.get("submits")):
             return self._submit(world, response, pioneer, parsed[1])
+        if parsed is None:
+            rlog(world.round, "llmResp未解析出CMD/ANSWER,回落探索梯子")
         if task.get("submits", 0) >= 2:
             # Wrong twice: walk away (ends the task, partial credit) instead of squatting.
+            rlog(world.round, f"已提交{task['submits']}次仍失败,弃坑离开任务点")
             task["abandoned"] = True
             task["state"] = "idle"
             return response
@@ -394,21 +434,30 @@ class TaskSolver:
             entry = [task["cmd"], out[:800]]
             if outputs and outputs[-1] == entry:
                 task["stuck"] += 1
+                rlog(world.round, f"命令输出与上回合相同,stuck={task['stuck']},准备升级探索")
             else:
                 outputs.append(entry)
                 del outputs[:-6]
+                rlog(world.round, f"命令输出已记录(现{len(outputs)}条)")
         if parsed and parsed[0] == "CMD" and len(parsed[1]) <= 300:
             cmd = parsed[1]
+            source = "LLM"
         elif outputs or not self.sop.get(task.get("type")):
             rung = min(task.get("stuck", 0), 2)
             cmd = self.LADDER[1] if rung >= 2 else self._doc_cmd(outputs) if rung == 1 else self.LADDER[0]
+            source = f"梯子第{rung + 1}级" + ("(文档)" if rung == 1 and cmd else "")
         else:
             # Recipe replay: hand the recorded context straight to the LLM.
             cmd = None
+            source = "配方重放(仅prompt)"
         if cmd:
             task["cmd"] = cmd
             response["executeCmd"] = cmd
+            rlog(world.round, f"executeCmd({source}): {cmd[:200]}")
+        else:
+            rlog(world.round, f"本回合无executeCmd({source})")
         response["prompt"] = self._prompt(world, task, outputs)
+        rlog(world.round, f"prompt已发送,长度={len(response['prompt'])}")
         return response
 
     @staticmethod
@@ -447,16 +496,20 @@ class TaskSolver:
         task["submitted_round"] = world.round
         response["roleCommandMap"][str(pioneer.id)] = {"action": "submitAnswer",
                                                        "taskAnswer": str(answer)[:2000]}
+        rlog(world.round, f"submitAnswer(第{task['submits']}次): {str(answer)[:200]!r}")
         return response
 
-    def _record(self):
+    def _record(self, round_no):
         task = self.task
         kind = task.get("type")
         if not kind or task.get("submits", 0) < 1:
+            rlog(round_no, f"任务结束但未记录SOP: 类型={kind!r} 提交次数={task.get('submits', 0)}")
             return
         context = "\n".join(f"$ {c}\n{o}" for c, o in task.get("outputs", []))
         self.sop[kind] = {"cmds": [c for c, _ in task.get("outputs", [])],
                           "context": context[:3000]}
+        rlog(round_no, f"SOP已记录: 类型={kind} 命令序列={[c for c, _ in task.get('outputs', [])]} "
+                       f"资料长度={len(context)}")
 
 
 class Agent:
@@ -477,6 +530,7 @@ class Agent:
         if key != self.key or world.round <= self.last_round:
             self.previous, self.avoided = {}, {}
             self.task = {"state": "idle"}
+            rlog(world.round, f"任务记忆重置(新对局或回合回退), key={key!r}")
         if world.round == self.last_round + 1:
             results = request.get("lastRoundRoleActionResults", {})
             for role, cmd in self.previous.items():
@@ -485,11 +539,16 @@ class Agent:
                     self.avoided[(target["x"], target["y"])] = world.round + 10
         self.avoided = {p: expiry for p, expiry in self.avoided.items() if expiry > world.round}
         self.task["known"] = sorted(self.sop)
+        rlog(world.round, f"回合头: day_tick={world.day_tick} {'白天' if world.day else '夜晚'} "
+                          f"金币={world.gold} 任务状态={self.task.get('state')} "
+                          f"phaseTask={world.phase_task[:120]!r} 已知SOP={self.task['known']}")
         response = Planner(world, self.avoided, task=self.task).run()
         try:
             response = TaskSolver(self.sop, self.task).step(world, response)
         except Exception:
             # The task layer must never take down the round's defence commands.
+            rlog(world.round, "TaskSolver异常(任务层已隔离,防御指令不受影响):\n"
+                              + traceback.format_exc()[-1200:])
             self.task = {"state": "idle"}
         self.key, self.last_round = key, world.round
         self.previous = response["roleCommandMap"]

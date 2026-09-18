@@ -1,6 +1,8 @@
 """Wire model. Coordinates have their origin at the bottom left."""
 from dataclasses import dataclass
 
+from .tasklog import rlog
+
 WEAPONS = {"gatling", "railgun", "rocket"}
 ACTORS = {"worker", "pioneer"}
 ORES = {"stone", "iron", "copper"}
@@ -93,6 +95,7 @@ class World:
                     "gold": int(task.get("goldReward") or 0),
                 })
             except (KeyError, TypeError, ValueError):
+                rlog(self.round, f"跳过畸形playerTasks条目: {task!r}"[:300])
                 continue
 
     def inside(self, p):
