@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 import shlex
+import re
 
 from .model import command
 
@@ -21,6 +22,9 @@ skill的solve接收当前完整任务字符串，解析变化参数，返回该�
 可以使用沙盒提供的文件/API，不要虚构文件、接口、执行结果或答案。缺少证据时先发command探索。
 match不要只写“任务”等泛词；代码不得把当前题的答案硬编码成通用答案。
 只在已掌握接口/格式后生成skill。优先在一次命令中完成必要查询，减少游戏回合。
+数据统计题：先读题目文件确认数据来源、字段语义、排序与去重要求，再用代码计算，不凭城市常识猜测。
+交互取值题：按题目规定的接口和步骤获取本题token，不能复用上题token或回放答案。
+优先返回可解析新任务参数的skill；若直接answer成功，该答案不会成为可复用程序。
 不需要长篇解释。遵循题目要求的答案格式；不要把answer对象再包一层说明。
 '''
 
@@ -78,6 +82,9 @@ class TaskRunner:
         self.llm_calls = 0
         self.cmd_calls = 0
         self.pioneer_id = None
+        self.started_round = None
+        self.brief = ""
+        self.bootstrap_done = False
 
     @staticmethod
     def validate_skill(obj):
@@ -111,8 +118,26 @@ class TaskRunner:
         except OSError:
             LOG.exception("could not persist skill cache; keeping in memory")
 
+    def audit(self, world):
+        """Keep bounded judge-side evidence for debugging actual task failures."""
+        entry = {"round": world.round, "pending": self.pending,
+                 "task": str(world.data.get("phaseTask") or "")[:30000],
+                 "llm_response": str(world.data.get("llmResp") or "")[:30000],
+                 "command_result": str(world.data.get("lastCmdResult") or "")[:30000],
+                 "errors": world.data.get("errors") or [], "history": self.history[-2:]}
+        try:
+            path = self.cache_path.with_name(self.cache_path.stem + "_trace.jsonl")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            mode = "w" if path.exists() and path.stat().st_size > 1024*1024 else "a"
+            with path.open(mode, encoding="utf-8") as stream:
+                stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError:
+            LOG.warning("task trace unavailable")
+
     def step(self, world):
         task = world.data.get("phaseTask") or ""
+        if task or self.active:
+            self.audit(world)
         errors = world.data.get("errors") or []
         failed = any(e.get("errorCode") in (1, 2, 4) for e in errors)
         if not task or not world.pioneer:
@@ -126,6 +151,12 @@ class TaskRunner:
             self.reset()
             self.active = task
             self.pioneer_id = world.pioneer["id"]
+            self.started_round = world.round
+        elapsed = world.round - self.started_round
+        remaining = max(0, getattr(self.config, "timeout_rounds", 60) - elapsed)
+        LOG.info("task_stage round=%s elapsed=%s remaining=%s pending=%s llm=%s cmd=%s errors=%s",
+                 world.round, elapsed, remaining, self.pending, self.llm_calls, self.cmd_calls,
+                 [e.get("errorCode") for e in errors])
         if self.awaiting_answer:
             self.awaiting_answer = False
             # An unfinished task is not evidence that the candidate solved it correctly.
@@ -146,6 +177,8 @@ class TaskRunner:
                 self.history.append({"format_error": "上次响应无效，请严格输出协议JSON。"})
             else:
                 output = world.data.get("lastCmdResult") or ""
+                if kind == "bootstrap":
+                    self.brief = output[:24000] + ("\n[中间截断]\n" + output[-8000:] if len(output) > 24000 else "")
                 self.history.append({"sandbox": output[-20000:]})
                 if kind == "skill" and output.startswith("[exitCode:0]"):
                     for line in reversed(output.splitlines()):
@@ -163,13 +196,24 @@ class TaskRunner:
                     result = self.apply({"action": "skill", **skill}, world)
                     if result:
                         return result
+        if not self.bootstrap_done:
+            self.bootstrap_done = True
+            # Only read a filename explicitly present in this task, inside the judge sandbox.
+            filename = re.search(r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_./-]+\.md)(?![A-Za-z0-9_])", task)
+            if filename and self.cmd_calls < self.config.task_cmd_budget:
+                self.pending = "bootstrap"
+                self.cmd_calls += 1
+                return {"executeCmd": "cat -- " + shlex.quote(filename.group(1))}
+        if remaining <= 0:
+            return {"exhausted": True}
         if self.llm_calls >= self.config.task_llm_budget:
             return {"exhausted": True}
         self.llm_calls += 1
         self.pending = "llm"
         return {"prompt": SYSTEM + "\n" + json.dumps({
             "task": task[:30000], "recent_history": self.history[-6:],
-            "round": world.round,
+            "task_file": self.brief, "round": world.round, "remaining_rounds": remaining,
+            "instruction": "剩余不足4回合时优先提交已有证据支持的最佳答案，不再探索无关文件。" if remaining < 4 else "按题目要求查询和校验。",
         }, ensure_ascii=False)}
 
     def answer(self, answer, world):

@@ -60,6 +60,9 @@ class JDTests(unittest.TestCase):
         d = scene(71)
         d["robot"]["roles"] = [robot(team="challenger")]
         self.assertFalse(any(c["action"] == "attack" for c in self.agent.decide(d)["roleCommandMap"].values()))
+        p = self.planner(d)
+        p.operate(p.operator)
+        self.assertFalse(any(c["action"] == "attack" for c in p.commands.values()))
 
     def test_mixed_wave_only_aims_at_own_wave(self):
         d = scene(71)
@@ -146,7 +149,7 @@ class JDTests(unittest.TestCase):
         d["phaseTask"] = "Read the task file and return its token."
         d["teamOur"]["roles"][3]["pos"] = {"x": 24, "y": 14}
         d["teamOur"]["roles"][1]["pos"] = {"x": 32, "y": 10}
-        d["robot"]["roles"] = [robot()]
+        d["robot"]["roles"] = [robot(point=(20, 8))]
         r = self.agent.decide(d)
         self.assertTrue(r["prompt"])
         self.assertNotIn("20011", r["roleCommandMap"])

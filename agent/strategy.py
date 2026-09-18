@@ -28,12 +28,14 @@ class Planner:
                                   and treasure["phase"] == "night" and world.day and world.day_tick >= 45)
         relief_ready = bool(missions and missions.news.due(world) and not world.day and
                             any(r.p == self.layout.operator for r in world.workers))
-        if world.workers and (world.raw.get("phaseTask") or prepare_night_trip or relief_ready):
+        task_relief = bool(not world.day and any(t.get("isValid") and not t.get("coldDownRounds") for t in world.tasks)
+                           and any(r.p == self.layout.operator for r in world.workers))
+        if world.workers and (world.raw.get("phaseTask") or prepare_night_trip or relief_ready or task_relief):
             self.operator = min(world.workers, key=lambda r: (distance(r.p, self.layout.operator), r.id))
         if not world.day:
             previous_guard = next((r for r in world.actors if r.id == self.memory.night_guard), None)
             if previous_guard and not (previous_guard.kind == "pioneer" and
-                                       (world.raw.get("phaseTask") or relief_ready)):
+                                       (world.raw.get("phaseTask") or relief_ready or task_relief)):
                 self.operator = previous_guard
             self.memory.night_guard = self.operator.id if self.operator else None
         else:
@@ -41,6 +43,38 @@ class Planner:
         self.wall_missing = [p for p in self.layout.walls if not any(r.p == p for r in world.walls)]
         self.danger = {p for r in world.robots for x in range(-4, 5) for y in range(-4, 5)
                        for p in [(r.p[0] + x, r.p[1] + y)] if world.inside(p)}
+        # One observed step is enough to reserve the next attack envelope.
+        for r in world.robots:
+            track = self.memory.robot_tracks.get(r.id)
+            if track and track[1] > 0:
+                sx = (world.station.p[0] > r.p[0]) - (world.station.p[0] < r.p[0])
+                sy = (world.station.p[1] > r.p[1]) - (world.station.p[1] < r.p[1])
+                self.danger.update((r.p[0]+sx+x, r.p[1]+sy+y) for x in range(-4, 5) for y in range(-4, 5))
+
+    def quiet_night(self):
+        return not self.w.day and not self.w.threats
+
+    def shelter(self, actor):
+        """Reach the rear of our base before the next wave; wait safely if already there."""
+        anchor = self.layout.operator
+        if distance(actor.p, anchor) <= 3 and actor.p not in self.danger:
+            self.used.add(actor.id)
+            return True
+        distances, first = self.route(actor)
+        goals = [p for p in distances if distance(p, anchor) <= 3 and p not in self.danger]
+        if goals:
+            goal = min(goals, key=lambda p: (distances[p], distance(p, anchor), p))
+            if goal != actor.p:
+                return self.emit(actor, command("move", first[goal]))
+        self.used.add(actor.id)
+        return True
+
+    def dusk_return(self, actor):
+        if not self.w.day or self.w.day_tick < 45:
+            return False
+        distances, _ = self.route(actor)
+        trip = min((n for p, n in distances.items() if distance(p, self.layout.operator) <= 3), default=1000)
+        return 70 - self.w.day_tick <= trip + 6
 
     def emit(self, actor, cmd):
         if actor.id in self.used:
@@ -148,6 +182,8 @@ class Planner:
             if self.missions and self.missions.news.closed(kind, self.w.day_no):
                 continue
             travel = min((distances[q] for q in neighbours(target) if q in distances and q not in self.danger), default=10**6)
+            if not self.w.day and self.w.robots and travel > 8:
+                continue
             price = 1 if stone_only else self.w.prices.get(kind, 0)
             if travel < 10**6 and price > 0:
                 # Stay on productive nearby mines; copper wins when travel is comparable.
@@ -185,6 +221,7 @@ class Planner:
         if actor.health < (140 if actor.kind == "worker" else 120) and "Medicine" in actor.bag:
             return self.emit(actor, command("use", name="Medicine"))
         options = []
+        delivery = self.memory.deliveries.get(actor.id)
         for unit in self.w.ours:
             prefix = {"rocket": "Weapon", "station": "Station", "wall": "Wall"}.get(unit.kind)
             if not prefix or unit.p in self.sites:
@@ -194,13 +231,18 @@ class Planner:
                 priority = 0 if unit.kind == "station" and unit.health < 1200 else 1 if unit.kind == "rocket" else 2
                 if unit.kind == "wall":
                     priority = (0.5 if unit.health < 350 else 2) + unit.health / (1000 + 500 * (unit.level - 1))
+                if delivery == (name, unit.id):
+                    priority = -2
                 options.append((priority, distance(actor.p, unit.p), unit.p, name))
             max_health = 1000 + 500 * (unit.level - 1)
-            if unit.kind == "wall" and unit.health < max_health * 0.65 and "WallFixer" in actor.bag:
-                options.append((0 if unit.health < 350 else 3, distance(actor.p, unit.p), unit.p, "WallFixer"))
+            if unit.kind == "wall" and unit.health < max_health * 0.8 and "WallFixer" in actor.bag:
+                priority = -2 if delivery == ("WallFixer", unit.id) else 0 if unit.health < 350 else 3
+                options.append((priority, distance(actor.p, unit.p), unit.p, "WallFixer"))
         for _, _, target, name in sorted(options):
             if self.approach(actor, target, command("use", target, name=name)):
                 self.sites.add(target)
+                if self.commands.get(str(actor.id), {}).get("action") == "use":
+                    self.memory.deliveries.pop(actor.id, None)
                 return True
         return False
 
@@ -216,6 +258,10 @@ class Planner:
                 continue  # Do not sacrifice a carrier that cannot survive this turn.
             rate = self.memory.rate(unit)
             threshold = max(400, rate * 4)
+            if unit.kind == "wall":
+                threshold = max(threshold, (1000 + 500 * (unit.level - 1)) * 0.8)
+            elif unit.level < 3:
+                threshold = max(threshold, 1500 * unit.level * 0.6)
             if unit.health >= threshold:
                 continue
             prefix = "Station" if unit.kind == "station" else "Wall"
@@ -231,11 +277,14 @@ class Planner:
     def rescue_delivery(self, actor):
         """Allow a short repair approach only when the carrier can afford exposure."""
         for wall in sorted(self.w.walls, key=lambda u: u.health):
-            if wall.health >= max(650, self.memory.rate(wall) * 6) or wall.p in self.sites:
+            if wall.health >= max((1000 + 500 * (wall.level - 1)) * 0.8, self.memory.rate(wall) * 6) or wall.p in self.sites:
                 continue
             usable = [f"WallUpgradeVoucher{wall.level}"] if wall.level < 3 else []
             usable.append("WallFixer")
             if not any(name in actor.bag for name in usable):
+                continue
+            # Already there: never shuffle between adjacent repair positions.
+            if distance(actor.p, wall.p) == 1:
                 continue
             distances, first = self.route(actor, False)
             options = []
@@ -286,21 +335,41 @@ class Planner:
                 return True
         return False
 
-    def upgrade_order(self):
-        rockets = sorted((r for r in self.w.towers if r.kind == "rocket"), key=lambda r: (-r.level, r.id))
-        station = self.w.station
-        if station.level < 3 and station.health < 1500 * station.level * 0.6:
-            return f"StationUpgradeVoucher{station.level}"
-        if rockets:
-            main = rockets[0]
-            if main.level < 3:
-                return f"WeaponUpgradeVoucher{main.level}"
-            other = min(rockets, key=lambda r: (r.level, r.id))
-            if other.level < 3:
-                return f"WeaponUpgradeVoucher{other.level}"
-        if station.level < 3:
-            return f"StationUpgradeVoucher{station.level}"
-        return None
+    def investment(self, actor):
+        """Compare short-horizon protection per gold and courier turn, with a survival gate."""
+        need = self.defence_need()
+        choices = []
+        if need:
+            name, unit = need
+            hp = 1500 * unit.level if unit.kind == "station" else 1000 + 500 * (unit.level - 1)
+            gain = hp - unit.health + (0 if name == "WallFixer" else 1500 if unit.kind == "station" else 500)
+            rate = max(self.memory.rate(unit), sum(r.attack for r in self.w.threats if distance(r.p, unit.p) <= 3))
+            urgent = unit.kind == "station" and self.emergency() or rate > 0 and unit.health / rate <= 8
+            choices.append((name, unit, gain, urgent))
+        for tower in self.w.towers:
+            if tower.kind == "rocket" and tower.level < 3:
+                hits = min(8, max(1, len(self.w.threats)))
+                gain = 60 * hits + (120 if tower.level == 2 else 0)
+                choices.append((f"WeaponUpgradeVoucher{tower.level}", tower, gain, False))
+        base = self.w.station
+        if base.level < 3 and not need:
+            choices.append((f"StationUpgradeVoucher{base.level}", base, 30 + 1500*base.level-base.health, False))
+        scored = []
+        for name, unit, gain, urgent in choices:
+            price = self.w.shop.get(name, 0)
+            if price <= 0:
+                continue
+            # Estimate shopping + delivery, then verify actual safe reachability when assigning.
+            trip = min((distance(actor.p, p) + distance(p, unit.p) for p, k in self.w.zones.items() if k == "weaponShop"), default=1000)
+            scored.append((urgent, gain / (price + 2*trip + 1), -trip, -unit.id, name, unit))
+        for _, _, _, _, name, unit in sorted(scored, key=lambda c: c[:4], reverse=True):
+            reserve = 25 * max(0, 3-self.build_count)
+            if unit.kind == "rocket":
+                reserve = self.defence_reserve()
+            if self.purchase(actor, name, reserve=reserve):
+                self.memory.deliveries[actor.id] = name, unit.id
+                return True
+        return False
 
     def operate(self, actor):
         if not self.w.day:
@@ -339,6 +408,11 @@ class Planner:
     def worker(self, actor):
         if self.urgent_local_supply(actor) or self.rescue_delivery(actor) or self.retreat(actor):
             return
+        if self.dusk_return(actor):
+            self.shelter(actor)
+            return
+        if actor.health < 160 and "Medicine" not in actor.bag and self.purchase(actor, "Medicine", reserve=self.defence_reserve()):
+            return
         if actor == self.operator and self.w.day:
             distances, _ = self.route(actor, False)
             if 70 - self.w.day_tick <= distances.get(self.layout.operator, 1000) + 8:
@@ -349,7 +423,9 @@ class Planner:
         if self.w.day:
             if self.build_count < 3 and self.budget >= 25 and self.build(actor, "rocket", self.layout.towers):
                 return
-            if self.wall_missing:
+            # Preserve one income stream once the three guns are built.
+            builder = len(self.w.workers) < 2 or actor.id == self.w.workers[0].id
+            if self.wall_missing and builder:
                 stones = actor.bag.count("stone")
                 adjacent_mine = any(k == "stone" and distance(actor.p, p) == 1 and p not in self.avoided for p, k in self.w.zones.items())
                 if adjacent_mine and stones < min(6, len(self.wall_missing)) and self.mine(actor, True):
@@ -372,9 +448,21 @@ class Planner:
             if need:
                 name, _ = need
                 if self.purchase(actor, name, reserve=reserve):
+                    self.memory.deliveries[actor.id] = name, need[1].id
                     return
                 if name.startswith("Wall") and self.purchase(actor, "WallFixer", reserve=reserve):
                     return
+        if not self.w.day and self.w.robots:
+            # Long trips through an active wave are not worthwhile for a miner.
+            if actor.health < 160:
+                self.shelter(actor)
+                return
+        if actor.id in self.memory.stalled:
+            self.memory.selling.add(actor.id)
+            if self.sell(actor, True):
+                return
+            self.shelter(actor)
+            return
         if not self.mine(actor):
             self.sell(actor, True)
 
@@ -382,8 +470,9 @@ class Planner:
         if self.missions:
             self.missions.active(self)
         # Night control is assigned first so a fallback worker never also mines/moves.
-        if not self.w.day and self.operator:
-            self.operate(self.operator)
+        if not self.w.day and self.operator and not self.quiet_night():
+            if not self.urgent_local_supply(self.operator):
+                self.operate(self.operator)
             self.used.add(self.operator.id)
         for worker in self.w.workers:
             if worker.id in self.used:
@@ -395,8 +484,14 @@ class Planner:
             if actor.id in self.used:
                 continue
             if not self.w.day:
-                if actor != self.operator:
-                    if not (self.missions and self.missions.treasure(self, actor)):
+                if self.quiet_night():
+                    if self.missions and self.missions.choose(self, actor):
+                        continue
+                    if self.use_supplies(actor):
+                        continue
+                    self.shelter(actor)
+                elif actor != self.operator:
+                    if not (self.missions and self.missions.choose(self, actor)):
                         self.use_supplies(actor)
                 continue
             return_margin = distance(actor.p, self.layout.operator) + 8
@@ -409,11 +504,7 @@ class Planner:
                 continue
             if self.use_supplies(actor):
                 continue
-            need = self.defence_need()
-            if need and self.purchase(actor, need[0], reserve=25 * max(0, 3 - self.build_count)):
-                continue
-            upgrade = self.upgrade_order()
-            if upgrade and self.purchase(actor, upgrade, reserve=self.defence_reserve()):
+            if self.investment(actor):
                 continue
             self.operate(actor)
         if self.missions and not self.w.raw.get("phaseTask") and not self.extra["prompt"]:

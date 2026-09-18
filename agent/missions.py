@@ -39,6 +39,15 @@ class Missions:
             return False
         if not w.pioneer:
             return False
+        if w.pioneer.p in planner.danger:
+            # Do not hold a task lock while the pioneer is exposed to a wave.
+            if "Medicine" in w.pioneer.bag and w.pioneer.health < 160:
+                planner.emit(w.pioneer, command("use", name="Medicine"))
+            else:
+                self.abandon = True
+                planner.retreat(w.pioneer)
+            planner.used.add(w.pioneer.id)
+            return True
         if planner.emergency() or self.abandon:
             self.abandon = True
             self.leave(planner)
@@ -91,7 +100,9 @@ class Missions:
             return False
         if self.treasure(planner, actor):
             return True
-        if not w.day or not w.workers:
+        if not w.workers:
+            return False
+        if not w.day and not planner.quiet_night() and not (planner.operator != actor and planner.operator.p == planner.layout.operator):
             return False
         distances, _ = planner.route(actor)
         choices = []
@@ -106,13 +117,17 @@ class Missions:
             for target in targets:
                 travel = min((distances[p] for p in neighbours(target) if p in distances), default=10**6)
                 # Reserve a return path; an unexpectedly long task gets a worker relief.
-                work = min(12, int(task.get("timeoutRounds") or 30))
+                work = min(20, int(task.get("timeoutRounds") or 60))
                 back = distance(target, planner.layout.operator)
-                if travel + work + back + 6 >= 70 - w.day_tick:
+                # During a cleared night the next dangerous boundary is next dusk.
+                available = 70 - w.day_tick if w.day else 200 - w.day_tick
+                if travel + work + back + 6 >= available:
                     continue
                 value = int(task.get("goldReward") or 0) + int(task.get("scoreReward") or 0)
-                choices.append((travel, -value, target))
-        for _, _, target in sorted(choices):
+                choices.append((travel, -value, target, int(task.get("timeoutRounds") or 60)))
+        for _, _, target, timeout in sorted(choices):
             if planner.approach(actor, target, command("acceptTask")):
+                if planner.commands.get(str(actor.id), {}).get("action") == "acceptTask":
+                    self.runner.config.timeout_rounds = timeout
                 return True
         return False
