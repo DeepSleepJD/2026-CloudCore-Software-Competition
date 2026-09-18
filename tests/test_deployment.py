@@ -43,7 +43,7 @@ class DeploymentTests(unittest.TestCase):
             archive = build(root / "CoreGeek.tar.gz")
             with tarfile.open(archive) as pack:
                 self.assertTrue(all(n == "CoreGeek" or n.startswith("CoreGeek/") for n in pack.getnames()))
-                for name in ("main3.py", "pyproject.toml", "src/agent/server.py", "src/zk_agent/__main__.py"):
+                for name in ("main3.py", "pyproject.toml", "agent/server.py", "agent/strategy.py"):
                     self.assertIsNotNone(pack.getmember("CoreGeek/" + name))
                 self.assertEqual(pack.getmember("CoreGeek/run.sh").mode, 0o755)
                 self.assertNotIn(b"\r", pack.extractfile("CoreGeek/run.sh").read())
@@ -71,7 +71,7 @@ class DeploymentTests(unittest.TestCase):
                             time.sleep(0.05)
                     else:
                         self.fail("packaged entry failed to start")
-                    self.assertEqual(status["version"], "v3.1")
+                    self.assertEqual(status["version"], "v4-jd")
                     for round_no in (1, 2, 3):
                         data = payload(round_no, towers=False)
                         data.update(robot=None, teamEnemy=None, phaseTask=None)

@@ -1,0 +1,39 @@
+name: Agent regression and submission smoke
+on:
+  push:
+    branches: [zk_dev]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit, scenario, generated contract and packaged HTTP tests
+        run: python -B -m unittest discover -s tests -v
+      - name: Critical mutation checks
+        run: python -B tools/mutation_checks.py
+      - name: Build deployment archive
+        run: python -B tools/package_submission.py dist/CoreGeek.tar.gz
+      - name: Linux official shell entry smoke
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p /tmp/jd-agent-smoke
+          tar -xzf dist/CoreGeek.tar.gz -C /tmp/jd-agent-smoke
+          bash /tmp/jd-agent-smoke/CoreGeek/run.sh 18765 > /tmp/jd-agent-smoke/server.log 2>&1 &
+          agent_pid=$!
+          trap 'kill "$agent_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18765/ > /tmp/jd-agent-smoke/health.json; then break; fi
+            sleep 0.2
+          done
+          python -c "import json; d=json.load(open('/tmp/jd-agent-smoke/health.json')); assert d['version']=='v4-jd'"

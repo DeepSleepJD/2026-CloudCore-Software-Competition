@@ -13,8 +13,7 @@ import tempfile
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from zk_agent.baseline import BaselineAgent
-from zk_agent.config import Config
+from agent.strategy import Agent
 from zk_agent.world import World, distance, pos
 
 KINDS = {4: "station", 5: "wall", 6: "worker", 7: "pioneer", 11: "smallRobot",
@@ -103,7 +102,7 @@ def main():
                 continue
             for index in (0, 1):
                 data = adapt(start, row, index)
-                agent = BaselineAgent(Config.baseline(state_dir=state))
+                agent = Agent(state_dir=state)
                 before = time.perf_counter()
                 result = agent.decide(data)
                 times.append(time.perf_counter() - before)
