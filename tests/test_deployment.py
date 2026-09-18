@@ -18,6 +18,7 @@ from test_task_environment import run_owned_helper
 from zk_agent.baseline import BaselineAgent
 from zk_agent.config import Config
 from tools.package_submission import build
+from tools.read_task_trace import decode
 
 
 class DeploymentTests(unittest.TestCase):
@@ -80,7 +81,7 @@ class DeploymentTests(unittest.TestCase):
                             time.sleep(0.05)
                     else:
                         self.fail("packaged entry failed to start")
-                    self.assertEqual(status["version"], "v7.2-jd")
+                    self.assertEqual(status["version"], "v7.3-jd")
                     for round_no in (1, 2, 3):
                         data = payload(round_no, towers=False)
                         data.update(robot=None, teamEnemy=None, phaseTask=None)
@@ -131,6 +132,13 @@ class DeploymentTests(unittest.TestCase):
                     process.terminate()
                     process.wait(timeout=5)
             self.assertIn("round=1 actions=", log.read_text(encoding="utf-8"))
+            events, issues = decode(log.read_text(encoding='utf-8').splitlines())
+            self.assertEqual(issues, [])
+            wire_commands = [e['executeCmd'] for e in events if e['event'] == 'response' and e.get('executeCmd')]
+            self.assertIn(cmd, wire_commands)
+            submissions = [json.loads(e['answer']) for e in events if e['event'] == 'submission']
+            self.assertIn({'count': 23}, submissions)
+            self.assertIn({'count': 2}, submissions)
 
 
 if __name__ == "__main__":

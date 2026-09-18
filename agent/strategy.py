@@ -527,11 +527,19 @@ class Agent:
     def decide(self, request):
         world = World(request)
         if not world.station or not world.actors:
+            if self.missions:
+                self.missions.runner.interrupt(world.round, 'base_or_all_actors_missing', {
+                    'errors': request.get('errors') or [], 'phaseTask': request.get('phaseTask'),
+                    'llmResp': request.get('llmResp'), 'lastCmdResult': request.get('lastCmdResult')})
             return {"roleCommandMap": {}, "prompt": "", "executeCmd": ""}
         key = (request["teamOur"].get("teamId"), world.team, world.station.p)
         if key == self.key and world.round == self.last_round and self.last_response is not None:
+            self.missions.runner.trace.response(world.round, self.last_response,
+                                                world.pioneer.id if world.pioneer else None, duplicate=True)
             return self.last_response
         if key != self.key or world.round < self.last_round:
+            if self.missions:
+                self.missions.runner.interrupt(world.round, 'match_identity_or_round_reset')
             self.previous, self.avoided = {}, {}
             self.memory = Memory()
             self.missions = Missions(str(key), self.state_dir)
@@ -545,6 +553,7 @@ class Agent:
         self.memory.observe(world, world.round == self.last_round + 1)
         self.missions.news.observe(world)
         response = Planner(world, self.avoided, self.memory, self.missions).run()
+        self.missions.runner.trace.response(world.round, response, world.pioneer.id if world.pioneer else None)
         self.key, self.last_round = key, world.round
         self.previous = response["roleCommandMap"]
         self.last_response = response

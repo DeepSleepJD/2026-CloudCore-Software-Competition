@@ -14,6 +14,7 @@ from test_jd_v4 import JDTests
 from test_task_protocol import TaskProtocolTests
 from test_task_quality import QualityFlowTests
 from test_query_recovery import QueryRecoveryTests
+from test_task_trace import TaskTraceTests
 from agent.task_sandbox import _query
 from agent.tasks import TaskRunner
 from agent.strategy import Planner
@@ -90,6 +91,22 @@ def main():
         with patch(target, bad):
             result = unittest.TestResult()
             QueryRecoveryTests(test).run(result)
+            results[name] = bool(result.failures or result.errors)
+    def forget_only_in_memory(self, world, reason):
+        if self.candidate in self.skills:
+            self.skills.remove(self.candidate)
+        self.candidate = None
+
+    trace_mutants = [
+        ('drop_outgoing_task_calls', 'agent.task_trace.TaskTrace.response', lambda *args, **kwargs: None,
+         'test_first_success_then_wrong_answer_has_separate_tasks_and_exact_wire_calls'),
+        ('reload_rejected_solver_after_restart', 'agent.tasks.TaskRunner.reject_candidate', forget_only_in_memory,
+         'test_rejected_cached_solver_is_removed_on_disk_even_if_task_disappears'),
+    ]
+    for name, target, bad, test in trace_mutants:
+        with patch(target, bad):
+            result = unittest.TestResult()
+            TaskTraceTests(test).run(result)
             results[name] = bool(result.failures or result.errors)
     print(json.dumps({"detected": sum(results.values()), "total": len(results), "mutants": results}, indent=2))
     if not all(results.values()):

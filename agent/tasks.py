@@ -10,6 +10,7 @@ import shlex
 import re
 
 from .model import command
+from .task_trace import TaskTrace
 from .task_checks import REPORT, WORKFLOWS, describe, grounded_url, identity, query_observation, shape_error
 
 LOG = logging.getLogger(__name__)
@@ -74,11 +75,16 @@ def skill_command(source, task):
     return "python3 -c " + shlex.quote(wrapper)
 
 
+def skill_id(skill):
+    return hashlib.sha256(identity(skill).encode('utf-8')).hexdigest()[:20]
+
+
 class TaskRunner:
     def __init__(self, config, team_key):
         self.config = config
         key = hashlib.sha256(team_key.encode()).hexdigest()[:16]
         self.cache_path = Path(config.state_dir) / (key + "_skills.json")
+        self.trace = TaskTrace(self.cache_path)
         self.skills = []
         try:
             cached = json.loads(self.cache_path.read_text(encoding="utf-8"))
@@ -95,6 +101,8 @@ class TaskRunner:
     def accepted(self, round_no, timeout):
         self.accepted_round = round_no
         self.config.timeout_rounds = timeout
+        self.trace.start(round_no, source='acceptTask', timeout_rounds=timeout,
+                         cached_skills=[skill_id(s) for s in self.skills])
 
     def reset(self):
         self.active = ""
@@ -171,6 +179,7 @@ class TaskRunner:
         self.cmd_calls += 1
         self.history.append({'tool': kind, 'stage': {'query': 'query_all_pages', 'check': 'verify_current_workspace',
                                                    'document': 'read_task_and_references'}[kind]})
+        self.trace.emit('tool_plan', world.round, kind=kind, request=self.tool_request, plan=plan)
         return {'executeCmd': 'python3 -c ' + shlex.quote(code)}
 
     @staticmethod
@@ -196,36 +205,58 @@ class TaskRunner:
         if self.candidate not in self.skills:
             self.skills.append(self.candidate)
         self.skills = self.skills[-32:]
+        self.persist_skills()
+
+    def persist_skills(self):
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_path.with_suffix(".tmp")
             tmp.write_text(json.dumps({"version": 2, "skills": self.skills}, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp.replace(self.cache_path)
-            LOG.info("task skill verified and cached")
+            LOG.info("task skill cache persisted: %s entries", len(self.skills))
         except OSError:
             LOG.exception("could not persist skill cache; keeping in memory")
 
+    def reject_candidate(self, world, reason):
+        if self.candidate in self.skills:
+            rejected = self.candidate
+            self.skills.remove(rejected)
+            self.persist_skills()
+            self.trace.emit('cache_rejected', world.round, skill_id=skill_id(rejected), reason=reason)
+        self.candidate = None
+
+    def interrupt(self, round_no, reason, data=None):
+        self.trace.end(round_no, reason, evidence=data or {}, llm_calls=self.llm_calls, cmd_calls=self.cmd_calls)
+        self.reset()
+        self.accepted_round = None
+
     def audit(self, world):
-        """Keep bounded judge-side evidence for debugging actual task failures."""
-        entry = {"round": world.round, "pending": self.pending,
-                 "task": str(world.data.get("phaseTask") or "")[:30000],
-                 "llm_response": str(world.data.get("llmResp") or "")[:30000],
-                 "command_result": str(world.data.get("lastCmdResult") or "")[:30000],
-                 "errors": world.data.get("errors") or [], "history": self.history[-2:],
-                 "ready_action": self.ready.get("action") if self.ready else None}
-        try:
-            path = self.cache_path.with_name(self.cache_path.stem + "_trace.jsonl")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            mode = "w" if path.exists() and path.stat().st_size > 1024*1024 else "a"
-            with path.open(mode, encoding="utf-8") as stream:
-                stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except OSError:
-            LOG.warning("task trace unavailable")
+        self.trace.receive(world, self.pending)
 
     def step(self, world, allow_work=True, allow_submit=True):
+        history = self.history
+        offset = len(history)
+        result = self._step(world, allow_work, allow_submit)
+        if self.active:
+            self.trace.emit('decision', world.round, allow_work=allow_work, allow_submit=allow_submit,
+                            pending=self.pending, ready_action=self.ready.get('action') if self.ready else None,
+                            remaining=self.remaining(world), known_start=self.known_start,
+                            llm_calls=self.llm_calls, cmd_calls=self.cmd_calls,
+                            history_added=self.history[offset:] if history is self.history else self.history,
+                            result={k: (bool(v) if k in ('prompt', 'executeCmd') else v) for k, v in result.items()},
+                            query_issue=self.query_issue, query_feedback=self.query_feedback, field_errors=self.field_errors,
+                            confirmed_fields=self.confirmed_fields)
+        return result
+
+    def _step(self, world, allow_work=True, allow_submit=True):
         self.work_allowed = allow_work
         task = world.data.get("phaseTask") or ""
-        if task or self.active:
+        if task and task != self.active:
+            if self.active:
+                self.trace.end(world.round, 'task_replaced_without_empty_round')
+            if not self.trace.task_open:
+                self.trace.start(world.round, source='observed_active_task', known_start=False)
+        if task or self.active or self.trace.task_open:
             self.audit(world)
         errors = world.data.get("errors") or []
         failed = any(e.get("errorCode") in (1, 2, 4) for e in errors)
@@ -233,12 +264,28 @@ class TaskRunner:
             results = world.data.get("lastRoundRoleActionResults") or {}
             accepted = results.get(str(self.pioneer_id), results.get(self.pioneer_id))
             # Task disappearance can also mean timeout, death or leaving the task point.
-            if (not task and world.pioneer and self.awaiting_answer and not errors and accepted is True
+            ended_after_submission = (not task and world.pioneer and self.awaiting_answer and not errors and accepted is True
                     and self.known_start and world.round == self.submitted_round + 1
                     and self.remaining(world) > 0
                     and world.pioneer.get("pos") == self.submitted_position
-                    and self.submitted_position is not None):
+                    and self.submitted_position is not None)
+            if failed:
+                self.reject_candidate(world, 'task_ended_with_error')
+            if ended_after_submission:
                 self.save_candidate()
+            if self.active:
+                codes = [e.get('errorCode') for e in errors]
+                reason = ('pioneer_missing' if not world.pioneer else 'judge_timeout' if 1 in codes
+                          else 'judge_wrong_answer' if 2 in codes else 'judge_command_error' if 4 in codes
+                          else 'ended_after_accepted_submission' if ended_after_submission
+                          else 'task_disappeared_unconfirmed')
+                self.trace.end(world.round, reason, errors=errors, action_legal=accepted,
+                               submitted_round=self.submitted_round, last_answer=self.last_answer,
+                               known_start=self.known_start, llm_calls=self.llm_calls, cmd_calls=self.cmd_calls,
+                               remaining=self.remaining(world),
+                               cached_skill=skill_id(self.candidate) if ended_after_submission and self.candidate else None)
+            elif self.trace.task_open:
+                self.trace.end(world.round, 'accept_not_observed', errors=errors)
             self.reset()
             if not world.pioneer:
                 self.accepted_round = None
@@ -252,6 +299,8 @@ class TaskRunner:
             self.started_round = self.accepted_round if self.known_start else world.round
             self.accepted_round = None
             self.contract = describe(self.context())
+            self.trace.emit('task_start', world.round, task=task, known_start=self.known_start,
+                            started_round=self.started_round, timeout_rounds=getattr(self.config, 'timeout_rounds', 60))
         elapsed = world.round - self.started_round
         remaining = max(0, getattr(self.config, "timeout_rounds", 60) - elapsed)
         LOG.info("task_stage round=%s elapsed=%s remaining=%s pending=%s llm=%s cmd=%s errors=%s",
@@ -263,9 +312,13 @@ class TaskRunner:
             self.history.append({"submission_feedback": errors or "任务仍在进行，请检查答案格式/字段。"})
             if any(e.get('errorCode') == 2 for e in errors) and self.last_answer is not None:
                 self.rejected_answers.add(identity(self.last_answer))
-            if failed and self.candidate in self.skills:
-                self.skills.remove(self.candidate)
-            self.candidate = None
+            self.trace.emit('submission_feedback', world.round, errors=errors,
+                            action_legal=(world.data.get('lastRoundRoleActionResults') or {}).get(str(self.pioneer_id)),
+                            answer=self.last_answer, task_still_active=True)
+            if failed:
+                self.reject_candidate(world, 'submission_failed')
+            else:
+                self.candidate = None
         if self.pending:
             kind = self.pending
             self.pending = None
@@ -273,6 +326,7 @@ class TaskRunner:
                 raw = world.data.get("llmResp", "")
                 obj = parse_object(raw)
                 if obj:
+                    self.trace.emit('model_action', world.round, action=obj)
                     self.ready = obj
                 elif any(e.get("errorCode") in (3, 5) for e in errors):
                     self.history.append({"model_error": errors})
@@ -306,6 +360,8 @@ class TaskRunner:
                             self.contract = describe(documents[0]['text'], self.document_path)
                             if self.contract['family'] == 'unknown':
                                 self.contract['family'] = describe(self.context())['family']
+                            self.trace.emit('task_contract', world.round, document_path=self.document_path,
+                                            workspace=self.workspace, contract=self.contract)
                         elif kind == 'query':
                             self.have_query_output, self.query_issue = True, ''
                             self.confirmed_fields = report['answer']
@@ -343,10 +399,9 @@ class TaskRunner:
                             except ValueError:
                                 break
                 if kind == "skill" and not self.ready:
-                    if self.candidate in self.skills:
-                        self.skills.remove(self.candidate)
-                    self.candidate = None
+                    self.reject_candidate(world, 'solver_execution_failed')
         if remaining <= 0:
+            self.trace.emit('work_stopped', world.round, reason='deadline', remaining=remaining)
             return {"exhausted": True}
         if self.ready:
             is_answer = self.ready.get("action") == "answer"
@@ -368,12 +423,15 @@ class TaskRunner:
             self.tried_cache = True
             for skill in reversed(self.skills):
                 if remaining >= 2 and all(text in self.context() for text in skill["match"]):
+                    self.trace.emit('cache_hit', world.round, skill_id=skill_id(skill), match=skill['match'])
                     result = self.apply({"action": "skill", **skill}, world)
                     if result:
                         return result
         if self.at_limit("llm"):
+            self.trace.emit('work_stopped', world.round, reason='local_llm_budget')
             return {"exhausted": True}
         if remaining < 2:
+            self.trace.emit('work_stopped', world.round, reason='insufficient_rounds_for_response', remaining=remaining)
             return {}  # No time for another response; preserve previously submitted partial credit.
         self.llm_calls += 1
         self.pending = "llm"
@@ -421,6 +479,8 @@ class TaskRunner:
             self.submitted_round = world.round
             self.submitted_position = world.pioneer.get("pos")
             self.last_answer = answer
+            self.trace.emit('submission', world.round, answer=text, family=self.contract['family'],
+                            field_errors=self.field_errors, position=self.submitted_position)
             return {"answered": True}
         self.ready = {"action": "answer", "answer": answer}
         return {"deferred": True}

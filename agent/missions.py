@@ -49,24 +49,36 @@ class Missions:
         danger = danger or imminent
         result = self.runner.step(TaskWorld(planner), allow_work=not (danger or emergency),
                                   allow_submit=not imminent and not self.abandon)
+        self.runner.trace.emit('scheduling', w.round, danger=danger, imminent=imminent,
+                               emergency=emergency, already_abandoning=self.abandon,
+                               position=w.pioneer.p, health=w.pioneer.health,
+                               nearby_robots=[{'id': r.id, 'position': r.p, 'distance': distance(w.pioneer.p, r.p)}
+                                              for r in w.robots if distance(w.pioneer.p, r.p) <= 8])
         if result.get("answered"):
             planner.used.add(w.pioneer.id)
             return True
         if danger:
             # Do not hold a task lock while the pioneer is exposed to a wave.
             if "Medicine" in w.pioneer.bag and w.pioneer.health < 160:
+                self.runner.trace.emit('survival_action', w.round, reason='heal_then_retry')
                 planner.emit(w.pioneer, command("use", name="Medicine"))
             else:
+                self.runner.trace.exit_reason = 'robot_danger_retreat'
+                self.runner.trace.emit('survival_action', w.round, reason=self.runner.trace.exit_reason)
                 self.abandon = True
                 planner.retreat(w.pioneer)
             planner.used.add(w.pioneer.id)
             return True
         if emergency:
+            self.runner.trace.exit_reason = self.runner.trace.exit_reason or 'base_emergency_leave'
+            self.runner.trace.emit('survival_action', w.round, reason=self.runner.trace.exit_reason)
             self.abandon = True
             self.leave(planner)
             planner.used.add(w.pioneer.id)
             return True
         if result.get("exhausted"):
+            self.runner.trace.exit_reason = 'task_budget_exhausted'
+            self.runner.trace.emit('survival_action', w.round, reason=self.runner.trace.exit_reason)
             self.abandon = True
             self.leave(planner)
         else:

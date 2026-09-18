@@ -112,7 +112,8 @@ class DeliveryAndTaskTests(unittest.TestCase):
         self.assertIn('format_error', r['prompt'])
         trace = next(Path(self.temp.name).glob('*_trace.jsonl'))
         entries = [json.loads(line) for line in trace.read_text(encoding='utf-8').splitlines()]
-        self.assertEqual(entries[-1]['llm_response'], 'not JSON')
+        inputs = [e for e in entries if e['event'] == 'input']
+        self.assertEqual(inputs[-1]['llm_response'], 'not JSON')
 
     def test_investment_uses_spare_cash_for_endangered_base(self):
         d = scene(20,245)
