@@ -263,13 +263,45 @@ class TaskFlowTest(unittest.TestCase):
         self.decide(agent, self.roles(14, 13), round_no=12, phase_task=self.TASK,
                     llm_resp="CMD: cat api.md", last_cmd_result="[exitCode:0]\nls output")
         self.decide(agent, self.roles(14, 13), round_no=13, phase_task=self.TASK,
-                    llm_resp="ANSWER: 25C", last_cmd_result="[exitCode:0]\napi doc")
+                    llm_resp="ANSWER: 25C",
+                    last_cmd_result="[exitCode:0]\napi doc: http://localhost:8899/api/v1/x")
         self.decide(agent, self.roles(14, 13), round_no=14)
         self.assertIn("自进化类1", agent.sop)
+        self.assertIn("URL: http://localhost:8899/api/v1/x", agent.sop["自进化类1"]["facts"])
         response = self.decide(agent, self.roles(14, 13), round_no=15,
                                phase_task="任务:查询上海天气,把气温填入答案")
-        self.assertEqual(response["executeCmd"], "")
-        self.assertIn("历史资料", response["prompt"])
+        self.assertEqual(response["executeCmd"], TaskSolver.LADDER[0])
+        self.assertIn("历史经验", response["prompt"])
+        self.assertIn("http://localhost:8899/api/v1/x", response["prompt"])
+
+    def test_multiline_cmd_preserved(self):
+        agent = Agent()
+        self.decide(agent, self.roles(14, 13))
+        self.decide(agent, self.roles(14, 13), round_no=11, phase_task=self.TASK)
+        heredoc = "CMD: cat > f.conf << 'EOF'\nport 8080\nname app\nEOF"
+        response = self.decide(agent, self.roles(14, 13), round_no=12, phase_task=self.TASK,
+                               llm_resp=heredoc)
+        self.assertEqual(response["executeCmd"],
+                         "cat > f.conf << 'EOF'\nport 8080\nname app\nEOF")
+
+    def test_placeholder_answer_not_submitted(self):
+        agent = Agent()
+        self.decide(agent, self.roles(14, 13))
+        self.decide(agent, self.roles(14, 13), round_no=11, phase_task=self.TASK)
+        response = self.decide(agent, self.roles(14, 13), round_no=12, phase_task=self.TASK,
+                               llm_resp="ANSWER: 未知")
+        self.assertNotIn("5", response["roleCommandMap"])
+        self.assertEqual(response["executeCmd"], TaskSolver.LADDER[0])
+
+    def test_budget_exhausted_without_answer_never_submits_garbage(self):
+        agent = Agent()
+        self.decide(agent, self.roles(14, 13))
+        for round_no in range(11, 26):
+            response = self.decide(agent, self.roles(14, 13), round_no=round_no,
+                                   phase_task=self.TASK)
+            command = response["roleCommandMap"].get("5")
+            self.assertTrue(command is None or command.get("action") != "submitAnswer",
+                            f"R{round_no} 提交了垃圾答案: {command}")
 
     def test_time_guard_rejects_late_task(self):
         agent = Agent()

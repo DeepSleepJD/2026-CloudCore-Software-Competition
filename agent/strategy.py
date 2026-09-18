@@ -363,7 +363,7 @@ class TaskSolver:
     submitAnswer; role movement stays with Planner. All state lives in the
     Agent-owned task dict so nothing survives a World rebuild unintentionally.
     """
-    LADDER = ("pwd && ls -la && find . -maxdepth 3 -type f 2>/dev/null | head -50",
+    LADDER = ("find /tmp/selfEvolutionTask /home /root -maxdepth 4 -type f \\( -name '*.md' -o -name '*.txt' \\) 2>/dev/null | head -30",
               "find / -maxdepth 2 2>/dev/null | head -40")
 
     def __init__(self, sop, task):
@@ -372,9 +372,6 @@ class TaskSolver:
 
     def step(self, world, response):
         task = self.task
-        if task.get("abandoned"):
-            rlog(world.round, "active: 任务已标记弃坑,等待开拓者走离任务点")
-            return response
         if not world.phase_task:
             if task.get("state") == "active":
                 self._record(world.round)
@@ -382,14 +379,21 @@ class TaskSolver:
                 rlog(world.round, f"phaseTask为空且状态={task.get('state')},无活动任务")
             # Keep type/known so the next task of the same kind can replay the recipe.
             task.update({"state": "idle", "outputs": [], "cmd": None, "stuck": 0,
-                         "submits": 0, "guess": "", "abandoned": False})
+                         "submits": 0, "guess": "", "abandoned": False,
+                         "last_submitted": None, "fail_streak": 0})
             task.pop("accepted_round", None)
             task.pop("submitted_round", None)
             return response
+        if task.get("abandoned"):
+            rlog(world.round, "active: 任务已标记弃坑,等待开拓者走离任务点")
+            return response
+        if task.get("state") == "go":
+            return response  # walking to the point; Planner owns this phase
         if task.get("state") != "active":
             task.update({"state": "active", "phase": world.phase_task,
                          "accepted_round": task.get("accepted_round", world.round),
-                         "outputs": [], "cmd": None, "stuck": 0, "submits": 0})
+                         "outputs": [], "cmd": None, "stuck": 0, "submits": 0,
+                         "fail_streak": 0})
             rlog(world.round, f"任务激活: 类型={task.get('type')} 接取回合={task['accepted_round']} "
                               f"超时={task.get('timeout')} 全文:\n---------- phaseTask ----------\n"
                               f"{world.phase_task}\n------------------------------")
@@ -408,29 +412,29 @@ class TaskSolver:
             rlog(world.round, f"active: 上回合已提交答案 {task.get('guess', '')[:80]!r},等待平台判定")
             return response
         spent = world.round - task["accepted_round"]
-        budget = 0.6 * task.get("timeout") if task.get("timeout") else 35
+        timeout = task.get("timeout") or 0
+        budget = timeout - 3 if timeout > 4 else 35
         parsed = self._parse(world.llm_resp)
-        rlog(world.round, f"active: 耗时={spent} 预算={budget:.0f} 提交次数={task.get('submits', 0)} "
-                          f"stuck={task.get('stuck', 0)} llmResp前300字: {world.llm_resp[:300]!r} "
+        cmd_out = parsed.get("cmd") if parsed else None
+        answer = parsed.get("answer") if parsed else None
+        exit_match = re.search(r"exitCode:(-?\d+)", world.last_cmd.get("code", ""))
+        if task.get("cmd"):
+            if exit_match and int(exit_match.group(1)) != 0:
+                task["fail_streak"] = task.get("fail_streak", 0) + 1
+            else:
+                task["fail_streak"] = 0
+        if self._valid(answer):
+            if answer != task.get("guess"):
+                rlog(world.round, f"LLM给出候选答案: {answer[:150]!r}")
+            task["guess"] = answer
+        rlog(world.round, f"active: 耗时={spent} 预算={budget} 提交次数={task.get('submits', 0)} "
+                          f"stuck={task.get('stuck', 0)} 失败连击={task.get('fail_streak', 0)} "
+                          f"llmResp前300字: {world.llm_resp[:300]!r} "
                           f"lastCmd退出码={world.last_cmd.get('code')!r} "
                           f"输出前200字: {world.last_cmd.get('out', '')[:200]!r}")
-        if spent > budget:
-            guess = task.get("guess") or (parsed[1] if parsed and parsed[0] == "ANSWER" else "")
-            rlog(world.round, f"超预算({spent}>{budget:.0f}),强制提交最佳猜测: {guess[:100]!r}")
-            return self._submit(world, response, pioneer, guess or world.phase_task)
-        if parsed and parsed[0] == "ANSWER" and (parsed[1] != task.get("guess") or not task.get("submits")):
-            return self._submit(world, response, pioneer, parsed[1])
-        if parsed is None:
-            rlog(world.round, "llmResp未解析出CMD/ANSWER,回落探索梯子")
-        if task.get("submits", 0) >= 2:
-            # Wrong twice: walk away (ends the task, partial credit) instead of squatting.
-            rlog(world.round, f"已提交{task['submits']}次仍失败,弃坑离开任务点")
-            task["abandoned"] = True
-            task["state"] = "idle"
-            return response
         outputs = task["outputs"]
         out = world.last_cmd.get("out", "")
-        if task.get("cmd") and out:
+        if task.get("cmd") and out and task.get("submitted_round") != world.round - 1:
             entry = [task["cmd"], out[:800]]
             if outputs and outputs[-1] == entry:
                 task["stuck"] += 1
@@ -439,17 +443,45 @@ class TaskSolver:
                 outputs.append(entry)
                 del outputs[:-6]
                 rlog(world.round, f"命令输出已记录(现{len(outputs)}条)")
-        if parsed and parsed[0] == "CMD" and len(parsed[1]) <= 300:
-            cmd = parsed[1]
-            source = "LLM"
-        elif outputs or not self.sop.get(task.get("type")):
-            rung = min(task.get("stuck", 0), 2)
-            cmd = self.LADDER[1] if rung >= 2 else self._doc_cmd(outputs) if rung == 1 else self.LADDER[0]
-            source = f"梯子第{rung + 1}级" + ("(文档)" if rung == 1 and cmd else "")
+        if self._valid(task.get("guess")) and (task.get("submits", 0) == 0
+                                               or task.get("last_submitted") != task["guess"]):
+            return self._submit(world, response, pioneer, task["guess"])
+        if task.get("submits", 0) >= 2:
+            # Wrong twice: walk away (ends the task, partial credit) instead of squatting.
+            rlog(world.round, f"已提交{task['submits']}次仍失败,弃坑离开任务点")
+            task["abandoned"] = True
+            task["state"] = "idle"
+            return response
+        if spent > budget:
+            if self._valid(task.get("guess")):
+                rlog(world.round, f"超预算({spent}>{budget}),提交既有候选答案")
+                return self._submit(world, response, pioneer, task["guess"])
+            if spent > budget + 2:
+                # No parsed answer exists; submitting phaseTask text is always worth zero.
+                rlog(world.round, f"超预算({spent}>{budget})且无候选答案,弃坑(空提交只会浪费回合)")
+                task["abandoned"] = True
+                task["state"] = "idle"
+                return response
+            task["cmd"] = None
+            response["prompt"] = self._prompt(world, task, task["outputs"], urgent=True)
+            rlog(world.round, f"超预算({spent}>{budget})无候选答案,发送最后通牒prompt"
+                              f"(长度{len(response['prompt'])}),本回合不执行命令")
+            return response
+        if cmd_out and len(cmd_out) <= 2000:
+            cmd, source = cmd_out, "LLM"
+        elif task.get("fail_streak", 0) >= 2:
+            cmd, source = self.LADDER[0], "失败连击重探"
+        elif task.get("type") in self.sop and not outputs:
+            cmd, source = self.LADDER[0], "配方重放(经验已入prompt)"
         else:
-            # Recipe replay: hand the recorded context straight to the LLM.
-            cmd = None
-            source = "配方重放(仅prompt)"
+            rung = min(task.get("stuck", 0), 2)
+            if rung >= 2:
+                cmd = self.LADDER[1]
+            elif rung == 1:
+                cmd = self._doc_cmd(outputs) or self.LADDER[1]
+            else:
+                cmd = self.LADDER[0]
+            source = f"梯子第{rung + 1}级"
         if cmd:
             task["cmd"] = cmd
             response["executeCmd"] = cmd
@@ -460,13 +492,43 @@ class TaskSolver:
         rlog(world.round, f"prompt已发送,长度={len(response['prompt'])}")
         return response
 
-    @staticmethod
-    def _parse(text):
-        for line in str(text or "").splitlines():
-            match = re.match(r"\s*(CMD|ANSWER)\s*[:：]\s*(.+)", line, re.I)
-            if match:
-                return match.group(1).upper(), match.group(2).strip()
-        return None
+    MARKER = re.compile(r"\s*\**\s*(CMD|ANSWER)\**\s*[:：]\s?(.*)", re.I)
+    BAD_ANSWERS = {"", "未知", "unknown", "none", "n/a", "null", "无", "tbd", "?"}
+
+    @classmethod
+    def _parse(cls, text):
+        """CMD may span multiple lines (heredoc / python -c); ANSWER may be multi-line JSON."""
+        text = re.sub(r"```[a-zA-Z]*\n?", "", str(text or ""))
+        cmd = answer = None
+        lines = text.splitlines()
+        i = 0
+        while i < len(lines):
+            match = cls.MARKER.match(lines[i])
+            if not match:
+                i += 1
+                continue
+            kind, first = match.group(1).upper(), match.group(2)
+            body = [first]
+            i += 1
+            while i < len(lines):
+                stop = cls.MARKER.match(lines[i])
+                if stop or (kind == "ANSWER" and not lines[i].strip()):
+                    break
+                body.append(lines[i])
+                i += 1
+            value = "\n".join(body).strip()
+            if kind == "CMD" and cmd is None:
+                cmd = value or None
+            elif kind == "ANSWER" and answer is None:
+                answer = value or None
+        return {"cmd": cmd, "answer": answer}
+
+    @classmethod
+    def _valid(cls, answer):
+        if not answer:
+            return False
+        head = str(answer).strip().splitlines()[0].strip().lower()
+        return head not in cls.BAD_ANSWERS
 
     @staticmethod
     def _doc_cmd(outputs):
@@ -476,23 +538,34 @@ class TaskSolver:
                 return f"head -120 {names[0]}"
         return None
 
-    def _prompt(self, world, task, outputs):
+    def _prompt(self, world, task, outputs, urgent=False):
         recipe = self.sop.get(task.get("type")) or {}
         parts = [f"任务描述:\n{world.phase_task}"]
-        if recipe.get("context"):
-            parts.append("同类型任务的历史资料(以往任务沙盒中的关键内容):\n" + recipe["context"][:1500])
+        if recipe.get("facts"):
+            parts.append("同类型任务的历史经验(优先利用,同一API与目录结构通常直接复用):\n"
+                         + "\n".join(recipe["facts"])[:1500])
         if outputs:
-            parts.append("沙盒探索记录(命令与输出):\n" +
-                         "\n".join(f"$ {c}\n{o}" for c, o in outputs)[:4000])
-        parts.append("只输出一行,格式二选一,不要有任何其他文字:\n"
-                     "CMD: <一条15秒内可完成的shell命令,沙盒不能访问外网>\n"
-                     "ANSWER: <任务的最终答案文本>")
+            parts.append("沙盒探索记录(命令与输出):\n"
+                         + "\n".join(f"$ {c}\n{o}" for c, o in outputs)[:4000])
+        rules = ["只输出两种格式之一,不要输出任何其他内容:",
+                 "CMD: <要执行的shell命令,15秒内完成,沙盒无外网,命令可以多行(如heredoc、python3 -c)>",
+                 "ANSWER: <任务的最终答案,可以是多行JSON>"]
+        if task.get("fail_streak", 0) >= 2:
+            rules.append(f"注意: 已连续{task['fail_streak']}条命令执行失败(exitCode非0),"
+                         f"先输出一条简单命令(如ls或cat)确认环境,不要重复失败过的命令。")
+        else:
+            rules.append("不要重复已执行过的命令;信息足够时立即输出ANSWER。")
+        if urgent:
+            rules.append("时间即将耗尽: 必须在本回合输出ANSWER,基于已有信息给出最可能的答案,"
+                         "部分正确的答案也有按通过率计分。")
+        parts.append("\n".join(rules))
         return "\n\n".join(parts)
 
     def _submit(self, world, response, pioneer, answer):
         task = self.task
         task["submits"] = task.get("submits", 0) + 1
         task["guess"] = answer
+        task["last_submitted"] = answer
         task["submitted_round"] = world.round
         response["roleCommandMap"][str(pioneer.id)] = {"action": "submitAnswer",
                                                        "taskAnswer": str(answer)[:2000]}
@@ -503,12 +576,20 @@ class TaskSolver:
         task = self.task
         kind = task.get("type")
         if not kind or task.get("submits", 0) < 1:
-            rlog(round_no, f"任务结束但未记录SOP: 类型={kind!r} 提交次数={task.get('submits', 0)}")
+            rlog(round_no, f"任务结束不记SOP: 类型={kind!r} 提交={task.get('submits', 0)}")
             return
-        context = "\n".join(f"$ {c}\n{o}" for c, o in task.get("outputs", []))
-        self.sop[kind] = {"cmds": [c for c, _ in task.get("outputs", [])],
-                          "context": context[:3000]}
-        rlog(round_no, f"SOP已记录: 类型={kind} 命令序列={[c for c, _ in task.get('outputs', [])]} "
+        outputs = task.get("outputs", [])
+        context = "\n".join(f"$ {c}\n{o}" for c, o in outputs)
+        facts = set()
+        for url in re.findall(r"https?://[^\s'\")\]]+", context):
+            facts.add(f"URL: {url}")
+        for secret in re.findall(r"(?i)(?:x-api[\s_-]?key|api[\s_-]?key|token|password)\s*[:=:]\s*[\w.-]+", context):
+            facts.add(f"凭证: {secret}")
+        for path in re.findall(r"/(?:tmp|home|root)/\S+?\.(?:md|txt|py|sh|conf|json)", context):
+            facts.add(f"文件: {path}")
+        self.sop[kind] = {"cmds": [c for c, _ in outputs], "context": context[:3000],
+                          "facts": sorted(facts)[:20]}
+        rlog(round_no, f"SOP已记录: 类型={kind} 事实{len(facts)}条 命令{len(outputs)}条 "
                        f"资料长度={len(context)}")
 
 
