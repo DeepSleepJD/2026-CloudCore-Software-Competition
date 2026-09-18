@@ -5,6 +5,7 @@ from pathlib import Path
 
 @dataclass
 class Config:
+    profile: str = "legacy"
     pvp_mode: str = "auto"  # off / auto (probe first) / on (explicit experiment)
     tower_loadout: list[str] = field(default_factory=lambda: ["rocket", "gatling", "rocket"])
     initial_towers: int = 2
@@ -22,8 +23,19 @@ class Config:
     wall_offsets: list[list[int]] = field(default_factory=list)
 
     @classmethod
+    def baseline(cls, **overrides):
+        values = dict(profile="baseline", pvp_mode="off", enable_raids=False,
+                      tower_loadout=["rocket", "rocket", "rocket"],
+                      initial_towers=3, wall_limit=9, sale_batch=10)
+        values.update(overrides)
+        return cls(**values)
+
+    @classmethod
     def load(cls, path: str | None):
-        obj = cls(**json.loads(Path(path).read_text(encoding="utf-8"))) if path else cls()
+        values = json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
+        obj = cls.baseline(**values) if values.get("profile", "baseline") == "baseline" else cls(**values)
+        if obj.profile not in {"legacy", "baseline"}:
+            raise ValueError("profile must be legacy or baseline")
         if obj.pvp_mode not in {"off", "auto", "on"}:
             raise ValueError("pvp_mode must be off, auto or on")
         if not 1 <= obj.initial_towers <= 3 or len(obj.tower_loadout) != 3:

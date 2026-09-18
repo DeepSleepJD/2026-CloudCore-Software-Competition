@@ -727,6 +727,9 @@ class Agent:
                 self.bad_steps[(uid, (target["x"], target["y"]))] = w.round + 3
                 LOG.info("round=%s role=%s blocked move; alternate route next turn", w.round, uid)
 
+    def target_weight(self, w, robot):
+        return 3 if w.base_distance(pos(robot)) <= 4 else 1
+
     def fire(self, w, actor, tower, projected):
         if (actor["id"] in w.used or str(tower["id"]) in w.commands
                 or tower.get("cooldown", 0) > 0 or distance(pos(actor), pos(tower)) > 1):
@@ -769,7 +772,7 @@ class Agent:
                 values = {}
                 for robot in targets:
                     centre = pos(robot)
-                    weight = 3 if w.base_distance(centre) <= 4 else 1
+                    weight = self.target_weight(w, robot)
                     for point in [centre] + around(centre):
                         if w.inside(point) and distance(pos(tower), point) <= reach:
                             damage = 20 if point == centre else 10

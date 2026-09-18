@@ -7,12 +7,13 @@ from threading import Lock
 
 from .config import Config
 from .strategy import Agent
+from .baseline import BaselineAgent
 
 LOG = logging.getLogger(__name__)
 
 
 def make_server(port, config, host="0.0.0.0"):
-    agent = Agent(config)
+    agent = BaselineAgent(config) if config.profile == "baseline" else Agent(config)
     lock = Lock()
 
     class Handler(BaseHTTPRequestHandler):
