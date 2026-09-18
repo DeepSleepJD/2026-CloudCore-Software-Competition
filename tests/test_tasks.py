@@ -264,9 +264,9 @@ class TaskTests(unittest.TestCase):
 
     def test_bad_llm_output_has_finite_retries(self):
         sim = TaskRollout(); sim.reach("llm")
-        for _ in range(12):
+        for _ in range(30):
             sim.step(False, llmResp="not json")
-        self.assertEqual("retry_exhausted", sim.agent.memory["tasks"]["history"][-1]["reason"])
+        self.assertEqual("insufficient_rounds", sim.agent.memory["tasks"]["history"][-1]["reason"])
 
     def test_missing_results_and_skipped_round_do_not_use_stale_answer(self):
         sim = TaskRollout(); sim.reach("llm")

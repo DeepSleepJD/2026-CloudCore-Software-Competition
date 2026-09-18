@@ -2,9 +2,13 @@
 import json
 import logging
 import re
+import shlex
+from pathlib import PurePosixPath
 
 from .model import command, distance, neighbours, pos
 from .navigation import paths
+from .task_bootstrap import bootstrap_command
+from .sandbox_http import api_failed
 
 LOG = logging.getLogger(__name__)
 INF = 10**6
@@ -32,6 +36,16 @@ class TaskScheduler:
         self.phase = self.w.raw.get("phaseTask") or ""
         self.errors = self.w.raw.get("errors") or []
         self.codes = {e.get("errorCode") for e in self.errors}
+        self.m.setdefault("discoveries", {})
+
+    def budget(self):
+        s = self.m["active"] or {}
+        remaining = max(0, s.get("deadline", self.w.round) - self.w.round)
+        # From a prompt: command next round, result +2, submit +3, feedback +4.
+        return {"remainingRounds": remaining,
+                "remainingCalls": max(0, remaining - 2),
+                "remainingCommands": max(0, (remaining - 3) // 2),
+                "remainingSubmissions": max(0, 3 - s.get("submits", 0))}
 
     def trace(self, event, **details):
         """Diagnostic only: preserve full payloads, including terminal-round feedback."""
@@ -48,9 +62,7 @@ class TaskScheduler:
                   "remainingRounds": s["deadline"] - self.w.round if "deadline" in s else None,
                   "calls": s.get("calls", 0), "commands": s.get("cmds", 0),
                   "submissions": s.get("submits", 0),
-                  "remainingCalls": 8 - s.get("calls", 0),
-                  "remainingCommands": 6 - s.get("cmds", 0),
-                  "remainingSubmissions": 3 - s.get("submits", 0), **details}
+                  **self.budget(), **details}
         payload = json.dumps(record, ensure_ascii=False)
         # Keep individual lines manageable without losing long prompts or outputs.
         if len(payload) <= 4000:
@@ -124,20 +136,34 @@ class TaskScheduler:
 
     def ask(self, feedback=""):
         s = self.m["active"]
-        if s["calls"] >= 8 or s["submits"] >= 3:
+        if s["submits"] >= 3:
             self.finish("retry_exhausted")
+            return False
+        if s["deadline"] - self.w.round < 3:
+            self.finish("insufficient_rounds")
             return False
         s["calls"] += 1
         self.prompt = (
             '你是比赛沙盒任务求解器。仅返回一个JSON对象：'
             '{"executeCmd":"shell命令"} 或 {"taskAnswer":"严格按任务要求的最终答案",'
-            '"experience":"可复用方法，不含本次答案"}。两种操作只能选一种。'
+            '"experience":"可复用方法，不含本次答案"}，或'
+            '{"httpRequest":{"url":"任务API完整URL","apiKey":"任务文档提供的key","header":"认证头名称"}}。三种操作只能选一种。'
             '先读取任务指定文件和API文档，基于实际输出求解，禁止猜测文件内容、token或复用旧答案。'
             '命令仅在隔离的比赛沙盒运行，无外网，支持shell/python，15秒上限；'
             '命令应有界、可重复执行，优先只读；不要访问个人凭据。'
             '错误/截断输出不能当成功；截断时缩小查询或分页。答案若为JSON可将taskAnswer设为对象。'
+            'bootstrap包含已读取的当前任务与API文档，不要重复读取。文档可能过时，以实际返回为准。'
+            'HTTP首次探测优先用httpRequest：程序编码中文查询、检查业务错误，并按服务端明确提示修正Bearer认证。'
+            '得到真实响应结构后再统计；先验证成功状态、记录必须为对象列表；禁止把错误字典当记录遍历。'
+            '分页必须依据实际响应验证完整性、去重、限制页数，缺页不能当完整结果；字段名不能靠猜。'
+            '可在一次executeCmd的Python脚本中用runpy.run_path(httpHelper)取得request_json，完成分页与统计，'
+            '每次检查ok后才读取data。httpHelper见bootstrap。长脚本用heredoc，避免嵌套引号。'
+            '任务文档里的测试API凭据可以用于该任务；禁止访问个人凭据。'
+            'remainingCommands是当前时间窗口可容纳的后续命令数；为最终提交及反馈预留回合。'
+            '为0时仅可提交已有实际数据支持的答案，不能再探索或编造。discoveries只作探索线索，当前输出优先。'
             '\n' + json.dumps({"phaseTask": self.phase,
-                               "remainingRounds": s["deadline"] - self.w.round,
+                               **self.budget(), "bootstrap": s.get("bootstrap", {}),
+                               "discoveries": self.m["discoveries"].get(s["type"], {}),
                                "experience": self.m["experience"].get(s["type"], ""),
                                "transcript": s["transcript"], "feedback": feedback}, ensure_ascii=False))
         s["stage"], s["sent"] = "llm", self.w.round
@@ -150,7 +176,45 @@ class TaskScheduler:
             self.trace("context_trim", kind=kind, originalChars=len(value),
                        retainedChars=min(len(value), 12000),
                        droppedEntries=max(0, len(s["transcript"]) + 1 - 8))
-        s["transcript"] = (s["transcript"] + [{kind: value[:12000]}])[-8:]
+        retained = value if len(value) <= 12000 else value[:12000] + "\n[CONTEXT_TRUNCATED]"
+        s["transcript"] = (s["transcript"] + [{kind: retained}])[-8:]
+
+    def send_command(self, cmd, bootstrap=False):
+        s = self.m["active"]
+        if not isinstance(cmd, str) or len(cmd) > 16000:
+            return self.ask("命令格式错误或超过16000字符，请缩短。")
+        if s["deadline"] - self.w.round < 4:
+            self.trace("command_rejected", reason="insufficient_rounds")
+            return self.ask("剩余回合不足以执行命令并提交；只能使用已有实际数据生成答案。")
+        self.execute = cmd
+        if not bootstrap:
+            self.remember("executeCmd", cmd)
+        s.update(stage="cmd", sent=self.w.round, cmds=s["cmds"] + 1,
+                 bootstrapPending=bootstrap)
+        self.trace("command_request", executeCmd=cmd, bootstrap=bootstrap)
+        return True
+
+    def observe_output(self, output):
+        """Keep verified environment facts even when the task later fails."""
+        s = self.m["active"]
+        normal = output.startswith("[exitCode:0]\n") and "[TRUNCATED]" not in output
+        body = envelope(output.partition("\n")[2])
+        facts = self.m["discoveries"].setdefault(s["type"], {})
+        if s.pop("bootstrapPending", False) and normal and body.get("kind") == "task_bootstrap":
+            s["bootstrap"] = body
+            if body.get("taskFile") and body.get("files"):
+                facts["directory"] = str(PurePosixPath(body["taskFile"]).parent)
+            return normal and not body.get("errors") and not any(f.get("truncated") for f in body.get("files", []))
+        # Store only endpoint/header metadata, never response records, keys or tokens.
+        if body.get("kind") == "task_http" and normal and body.get("ok") is True:
+            from urllib.parse import urlsplit, urlunsplit
+            parsed = urlsplit(body.get("url", ""))
+            facts["http"] = {"endpoint": urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")),
+                             "authHeader": body.get("authHeader")}
+        message = str(body.get("message", "")).lower()
+        if api_failed(body) and "authorization" in message and "bearer" in message:
+            facts["authGuidance"] = "服务端曾要求Authorization: Bearer <任务API key>；当前任务需验证。"
+        return normal and not api_failed(body)
 
     def run(self):
         """Return True to reserve the pioneer, even when its action is to wait."""
@@ -217,6 +281,10 @@ class TaskScheduler:
             if s["stage"] == "accept":
                 if self.phase:
                     s["description"] = self.phase
+                    directory = self.m["discoveries"].get(s["type"], {}).get("directory")
+                    cmd = bootstrap_command(self.phase, directory)
+                    if cmd:
+                        return self.send_command(cmd, bootstrap=True)
                     return self.ask()
                 if consecutive and valid is False:
                     self.finish("accept_rejected")
@@ -238,20 +306,22 @@ class TaskScheduler:
                     return self.ask("LLM未返回，重试；不要编造答案。") if self.w.round - s["sent"] >= 2 else True
                 value = envelope(text)
                 cmd, answer = value.get("executeCmd"), value.get("taskAnswer")
-                if bool(cmd) == (answer is not None):
-                    return self.ask("响应格式错误，必须且只能提供executeCmd或taskAnswer。")
+                http = value.get("httpRequest")
+                if sum((bool(cmd), answer is not None, http is not None)) != 1:
+                    return self.ask("响应格式错误，必须且只能提供executeCmd、httpRequest或taskAnswer。")
+                if http is not None:
+                    helper = s.get("bootstrap", {}).get("httpHelper")
+                    if not helper or not isinstance(http, dict) or not isinstance(http.get("url"), str):
+                        return self.ask("httpRequest格式错误或httpHelper不可用，请用executeCmd进行有界查询。")
+                    args = ["python3", helper, http["url"]]
+                    for field, flag in (("apiKey", "--key"), ("header", "--header")):
+                        if field in http:
+                            if not isinstance(http[field], str):
+                                return self.ask("httpRequest的apiKey和header必须为字符串。")
+                            args.extend([flag, http[field]])
+                    cmd = shlex.join(args)
                 if cmd:
-                    if not isinstance(cmd, str) or len(cmd) > 12000 or s["cmds"] >= 6:
-                        self.trace("command_rejected", invalidType=not isinstance(cmd, str),
-                                   tooLong=isinstance(cmd, str) and len(cmd) > 12000,
-                                   budgetExhausted=s["cmds"] >= 6)
-                        self.finish("command_budget_exhausted")
-                        return False
-                    self.execute = cmd
-                    self.remember("executeCmd", cmd)
-                    s.update(stage="cmd", sent=self.w.round, cmds=s["cmds"] + 1)
-                    self.trace("command_request", executeCmd=cmd)
-                    return True
+                    return self.send_command(cmd)
                 if not isinstance(answer, str):
                     answer = json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
                 if not answer.strip() or len(answer) > 64000 or answer in s["answers"]:
@@ -266,10 +336,12 @@ class TaskScheduler:
             if s["stage"] == "cmd":
                 output = self.w.raw.get("lastCmdResult") if consecutive else ""
                 if output:
-                    self.remember("lastCmdResult", output)
-                    ok = output.startswith("[exitCode:0]\n") and "[TRUNCATED]" not in output
+                    bootstrap = s.get("bootstrapPending", False)
+                    ok = self.observe_output(output)
+                    if not bootstrap or not s.get("bootstrap"):
+                        self.remember("lastCmdResult", output)
                     return self.ask("命令正常完成，请根据实际输出继续。" if ok else
-                                    "命令失败/超时/判题异常/截断；修正命令，不能将部分输出当完整答案。")
+                                    "命令或API业务失败/超时/判题异常/截断；检查状态码、认证和类型，不能将部分输出当完整答案。")
                 if self.w.round - s["sent"] >= 2:
                     return self.ask("命令结果丢失，检查状态后使用幂等查询，不能假定成功。")
                 return True
