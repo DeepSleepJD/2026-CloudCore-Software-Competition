@@ -90,11 +90,11 @@ class TaskEnvironmentTests(unittest.TestCase):
             data.update(roundNo=11, lastCmdResult=result)
             second = agent.decide(data)
             self.assertIn('本题接口资料', second['prompt'])
-            self.assertIn(folder.as_posix(), second['prompt'])
+            self.assertIn(folder.resolve().as_posix(), second['prompt'])
             data.update(roundNo=12, lastCmdResult='', llmResp=json.dumps(
                 {'action': 'command', 'command': 'cat API_DOCS.md'}))
             third = agent.decide(data)
-            self.assertEqual(third['executeCmd'], 'cd ' + shlex.quote(folder.as_posix()) + ' && cat API_DOCS.md')
+            self.assertEqual(third['executeCmd'], 'cd ' + shlex.quote(folder.resolve().as_posix()) + ' && cat API_DOCS.md')
 
     def test_ambiguous_documents_are_not_arbitrarily_selected(self):
         with tempfile.TemporaryDirectory() as temp:
