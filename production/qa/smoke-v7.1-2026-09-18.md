@@ -22,6 +22,8 @@
 
 首次远端验证：Linux 两组通过，Windows 两组失败。本机用 Windows 8.3 短路径复现目录断言差异：旧测试 1 项失败，改为比较 resolve 后的真实路径后通过；运行代码未改变。同时将 CI 测试输出显式设为 UTF-8，避免英文 Windows 的旧字符编码吞掉中文失败详情。
 
+最终远端验证：a6eb688 在 Linux/Windows × Python 3.10/3.12 四组全部通过；完整测试、变异检查、打包及两组 Linux 的官方脚本入口检查通过。[执行记录](https://github.com/DeepSleepJD/2026-CloudCore-Software-Competition/actions/runs/35340258180)。运行源码与下述提交包一致，后续提交仅修改测试和记录。
+
 ## 提交包
 
 版本 v7.1-jd；源码提交 48aa14259c2cb10ec967be472c0fe24d336045b4。15 个包内源码/说明文件与工作区一致，run.sh 执行位 0755，换行为 LF。CoreGeek-v7.1.tar.gz 与仓库 artifacts/CoreGeek.tar.gz 字节一致，大小 32542 字节，SHA256：`9b149e766e715ea5808274e6b0ef6d1c4068fe3025207e09d2a4609bd20c4561`。
