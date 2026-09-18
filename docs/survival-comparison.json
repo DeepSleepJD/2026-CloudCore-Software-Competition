@@ -1,0 +1,299 @@
+{
+  "scope": "Controlled economy and scripted wall damage; no official robot AI or survival score.",
+  "baselineCommit": "a7b2b00",
+  "before": {
+    "fixedCash": {
+      "initialGold": 276,
+      "income": 0,
+      "baseUpgradeRounds": {},
+      "finalBaseLevel": 1,
+      "remainingGold": 76
+    },
+    "wallPressure": {
+      "rounds": 60,
+      "scriptedDamagePerRound": 80,
+      "repairs": 0,
+      "firstWallBreachRound": 355,
+      "finalWallHealth": 0
+    },
+    "economy": [
+      {
+        "side": "left",
+        "rounds": 1300,
+        "upgrades": [
+          {
+            "round": 166,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10042
+          },
+          {
+            "round": 296,
+            "kind": "rocket",
+            "level": 3,
+            "id": 10042
+          },
+          {
+            "round": 426,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10040
+          },
+          {
+            "round": 557,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10041
+          },
+          {
+            "round": 686,
+            "kind": "rocket",
+            "level": 3,
+            "id": 10040
+          },
+          {
+            "round": 817,
+            "kind": "rocket",
+            "level": 3,
+            "id": 10041
+          },
+          {
+            "round": 947,
+            "kind": "station",
+            "level": 2,
+            "id": 10013
+          },
+          {
+            "round": 1077,
+            "kind": "station",
+            "level": 3,
+            "id": 10013
+          }
+        ],
+        "actions": {
+          "build": 15,
+          "move": 2218,
+          "collect": 601,
+          "attack": 450,
+          "sell": 61,
+          "buy": 8,
+          "use": 8
+        },
+        "remainingGold": 1801
+      },
+      {
+        "side": "right",
+        "rounds": 1300,
+        "upgrades": [
+          {
+            "round": 148,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20042
+          },
+          {
+            "round": 188,
+            "kind": "rocket",
+            "level": 3,
+            "id": 20042
+          },
+          {
+            "round": 278,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20041
+          },
+          {
+            "round": 296,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20040
+          },
+          {
+            "round": 410,
+            "kind": "rocket",
+            "level": 3,
+            "id": 20041
+          },
+          {
+            "round": 428,
+            "kind": "rocket",
+            "level": 3,
+            "id": 20040
+          },
+          {
+            "round": 545,
+            "kind": "station",
+            "level": 2,
+            "id": 20013
+          },
+          {
+            "round": 575,
+            "kind": "station",
+            "level": 3,
+            "id": 20013
+          }
+        ],
+        "actions": {
+          "move": 2027,
+          "build": 15,
+          "collect": 647,
+          "attack": 450,
+          "sell": 71,
+          "buy": 8,
+          "use": 8
+        },
+        "remainingGold": 1873
+      }
+    ]
+  },
+  "after": {
+    "fixedCash": {
+      "initialGold": 276,
+      "income": 0,
+      "baseUpgradeRounds": {
+        "2": 288,
+        "3": 306
+      },
+      "finalBaseLevel": 3,
+      "remainingGold": 6
+    },
+    "wallPressure": {
+      "rounds": 60,
+      "scriptedDamagePerRound": 80,
+      "repairs": 6,
+      "firstWallBreachRound": null,
+      "finalWallHealth": 1520
+    },
+    "economy": [
+      {
+        "side": "left",
+        "rounds": 1300,
+        "upgrades": [
+          {
+            "round": 111,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10040
+          },
+          {
+            "round": 170,
+            "kind": "station",
+            "level": 2,
+            "id": 10013
+          },
+          {
+            "round": 277,
+            "kind": "rocket",
+            "level": 3,
+            "id": 10040
+          },
+          {
+            "round": 423,
+            "kind": "station",
+            "level": 3,
+            "id": 10013
+          },
+          {
+            "round": 519,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10041
+          },
+          {
+            "round": 590,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10042
+          },
+          {
+            "round": 708,
+            "kind": "rocket",
+            "level": 3,
+            "id": 10041
+          },
+          {
+            "round": 813,
+            "kind": "rocket",
+            "level": 3,
+            "id": 10042
+          }
+        ],
+        "actions": {
+          "build": 15,
+          "move": 1672,
+          "collect": 400,
+          "attack": 450,
+          "sell": 42,
+          "buy": 12,
+          "use": 8
+        },
+        "remainingGold": 735
+      },
+      {
+        "side": "right",
+        "rounds": 1300,
+        "upgrades": [
+          {
+            "round": 106,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20040
+          },
+          {
+            "round": 171,
+            "kind": "station",
+            "level": 2,
+            "id": 20013
+          },
+          {
+            "round": 276,
+            "kind": "rocket",
+            "level": 3,
+            "id": 20040
+          },
+          {
+            "round": 431,
+            "kind": "station",
+            "level": 3,
+            "id": 20013
+          },
+          {
+            "round": 522,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20041
+          },
+          {
+            "round": 623,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20042
+          },
+          {
+            "round": 769,
+            "kind": "rocket",
+            "level": 3,
+            "id": 20041
+          },
+          {
+            "round": 859,
+            "kind": "rocket",
+            "level": 3,
+            "id": 20042
+          }
+        ],
+        "actions": {
+          "move": 1559,
+          "build": 15,
+          "collect": 440,
+          "attack": 450,
+          "sell": 54,
+          "buy": 11,
+          "use": 8
+        },
+        "remainingGold": 762
+      }
+    ]
+  }
+}
