@@ -15,10 +15,12 @@ LOG = logging.getLogger(__name__)
 def make_server(port, config, host="0.0.0.0"):
     agent = BaselineAgent(config) if config.profile == "baseline" else Agent(config)
     lock = Lock()
+    status = {"requests": 0, "last_round": None, "last_actions": 0, "last_error": None}
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = b'{"status":"ok","agent":"zk_agent"}'
+            with lock:
+                body = json.dumps({"status": "ok", "agent": "zk_agent", "version": "v3.1", **status}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -35,7 +37,16 @@ def make_server(port, config, host="0.0.0.0"):
                 raw = self.rfile.read(length)
                 payload = json.loads(raw.decode("utf-8"))
                 with lock:
-                    reply = agent.decide(payload)
+                    status.update(requests=status["requests"] + 1, last_round=payload.get("roundNo"))
+                    try:
+                        reply = agent.decide(payload)
+                        status.update(last_actions=len(reply["roleCommandMap"]), last_error=None)
+                    except Exception as error:
+                        status.update(last_actions=0, last_error=type(error).__name__)
+                        raise
+                    LOG.info("round=%s actions=%s", status["last_round"], status["last_actions"])
+                    if not reply["roleCommandMap"] and not reply.get("prompt") and not reply.get("executeCmd"):
+                        LOG.warning("round=%s empty decision; inspect unit types, health and available jobs", status["last_round"])
             except Exception:
                 LOG.exception("decision failed; returning a valid empty turn")
             body = json.dumps(reply, ensure_ascii=False).encode("utf-8")
@@ -59,7 +70,7 @@ def main():
     parser.add_argument("port", type=int)
     parser.add_argument("--config")
     args = parser.parse_args()
-    logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     config = Config.load(args.config)
     server = make_server(args.port, config)
     LOG.info("listening on 0.0.0.0:%s; PvP=%s", args.port, config.pvp_mode)

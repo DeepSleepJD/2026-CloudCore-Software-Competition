@@ -1,0 +1,94 @@
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import unittest
+from urllib.request import Request, urlopen
+
+from test_agent import payload
+from zk_agent.baseline import BaselineAgent
+from zk_agent.config import Config
+from tools.package_submission import build
+
+
+class DeploymentTests(unittest.TestCase):
+    def test_nullable_official_demo_fields_still_produce_actions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for field in ("robot", "teamEnemy", "vendorShopList", "weaponShopList"):
+                data = payload(1, towers=False)
+                data[field] = None
+                result = BaselineAgent(Config.baseline(state_dir=temp)).decide(data)
+                self.assertTrue(result["roleCommandMap"], field)
+
+    def test_null_collections_and_role_defaults(self):
+        data = payload(1, towers=False)
+        data.update(robot={"roles": None}, teamEnemy={"roles": None}, vendorShopList=None, weaponShopList=None)
+        data["teamOur"]["playerTasks"] = None
+        data["mapInfo"]["zones"] = None
+        for role in data["teamOur"]["roles"]:
+            role.update(backpack=None, cooldown=None, attackRange=None, backPackCapability=None)
+        with tempfile.TemporaryDirectory() as temp:
+            result = BaselineAgent(Config.baseline(state_dir=temp)).decide(data)
+            self.assertTrue(result["roleCommandMap"])
+        self.assertIsNone(data["teamOur"]["roles"][0]["backpack"])
+
+    def test_extracted_demo_main3_entry_from_unrelated_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = build(root / "CoreGeek.tar.gz")
+            with tarfile.open(archive) as pack:
+                self.assertTrue(all(n == "CoreGeek" or n.startswith("CoreGeek/") for n in pack.getnames()))
+                for name in ("main3.py", "pyproject.toml", "src/agent/server.py", "src/zk_agent/__main__.py"):
+                    self.assertIsNotNone(pack.getmember("CoreGeek/" + name))
+                self.assertEqual(pack.getmember("CoreGeek/run.sh").mode, 0o755)
+                self.assertNotIn(b"\r", pack.extractfile("CoreGeek/run.sh").read())
+                pack.extractall(root, filter="data")
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                port = sock.getsockname()[1]
+            env = os.environ.copy()
+            env.pop("PYTHONPATH", None)
+            log = root / "startup.log"
+            with log.open("w", encoding="utf-8") as stream:
+                process = subprocess.Popen([sys.executable, str(root / "CoreGeek/main3.py"), str(port)],
+                                           cwd=root, env=env, stdout=stream, stderr=stream)
+                try:
+                    url = f"http://127.0.0.1:{port}/"
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        try:
+                            with urlopen(url, timeout=0.5) as response:
+                                status = json.load(response)
+                            break
+                        except OSError:
+                            if process.poll() is not None:
+                                self.fail(log.read_text(encoding="utf-8"))
+                            time.sleep(0.05)
+                    else:
+                        self.fail("packaged entry failed to start")
+                    self.assertEqual(status["version"], "v3.1")
+                    for round_no in (1, 2, 3):
+                        data = payload(round_no, towers=False)
+                        data.update(robot=None, teamEnemy=None, phaseTask=None)
+                        for role in data["teamOur"]["roles"]:
+                            role["backpack"] = None
+                        request = Request(url, json.dumps(data).encode(), {"Content-Type": "application/json"})
+                        with urlopen(request, timeout=5) as response:
+                            self.assertTrue(json.load(response)["roleCommandMap"])
+                    with urlopen(url, timeout=5) as response:
+                        status = json.load(response)
+                    self.assertEqual(status["requests"], 3)
+                    self.assertIsNone(status["last_error"])
+                finally:
+                    process.terminate()
+                    process.wait(timeout=5)
+            self.assertIn("round=1 actions=", log.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

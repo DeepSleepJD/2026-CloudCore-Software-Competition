@@ -2,11 +2,13 @@
 
 这是一套可迭代的规则策略程序，不是训练得到的神经网络模型。依据 replay.json 中已观察到的三火箭共用炮位、任务启动经济和关键墙维修，建立默认基线。保留 v2 作为对照，原文档与 Demo 未修改。
 
-当前交付分支：`zk_dev`。可直接下载 [v3 比赛提交包](artifacts/zk_dev-submit-v3.tar.gz)；改动、验证范围与后续计划见 [v3 交付说明](docs/v3-delivery.md)。压缩包包含已验证的运行代码，不包含此后添加的仓库交付说明。
+当前交付分支：`zk_dev`。**请使用 [v3.1 修复提交包](artifacts/CoreGeek.tar.gz)，不要再上传旧的 v3 包。** 新包的顶层目录和入口对齐官方 Demo：`CoreGeek/main3.py`、`CoreGeek/src/agent/`，策略代码位于 `CoreGeek/src/zk_agent/`。详见 [零动作问题修复说明](docs/v3.1-deployment-fix.md)。
 
 ## 运行与提交
 
 Python 3.11+，仅标准库。比赛入口：
+
+解压提交包后进入 `CoreGeek`，使用 Demo 同名入口 `python3 main3.py 8080`；比赛环境应将示例端口替换为平台分配的端口。也支持下方脚本入口。源代码仓库直接运行时不需要额外进入 `CoreGeek`。
 
 ```bash
 bash run.sh 8080

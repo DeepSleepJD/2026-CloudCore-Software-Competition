@@ -44,6 +44,33 @@ class Path:
 
 class World:
     def __init__(self, data):
+        # The official Demo accepts explicit null collections and robot blocks.
+        # Do not mutate the caller's payload (also used by replay/tests).
+        data = dict(data)
+        data["mapInfo"] = dict(data["mapInfo"])
+        data["mapInfo"]["zones"] = data["mapInfo"].get("zones") or []
+        for name in ("teamOur", "teamEnemy", "robot"):
+            block = dict(data.get(name) or {})
+            roles = []
+            for raw in block.get("roles") or []:
+                role = dict(raw)
+                role["id"] = int(role["id"])
+                for key, default in (("health", 0), ("level", 1), ("cooldown", 0),
+                                     ("attackPower", 0), ("attackRange", 0)):
+                    role[key] = int(role.get(key) or default)
+                role["backpack"] = role.get("backpack") or []
+                role["backPackCapability"] = int(role.get("backPackCapability") or
+                                                (40 if role["roleType"] == "pioneer" else 100))
+                roles.append(role)
+            block["roles"] = roles
+            block["goldNum"] = int(block.get("goldNum") or 0)
+            block["playerTasks"] = [dict(task, coldDownRounds=int(task.get("coldDownRounds") or 0),
+                                        timeoutRounds=int(task.get("timeoutRounds") or 30),
+                                        scoreReward=int(task.get("scoreReward") or 0))
+                                    for task in block.get("playerTasks") or []]
+            data[name] = block
+        for name in ("vendorShopList", "weaponShopList"):
+            data[name] = data.get(name) or []
         self.data = data
         self.round = int(data["roundNo"])
         if self.round < 1:
