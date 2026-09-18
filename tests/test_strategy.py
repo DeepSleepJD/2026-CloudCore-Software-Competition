@@ -122,14 +122,15 @@ class StrategyTests(unittest.TestCase):
             towers=[r for r in roles if r["roleType"]=="rocket"]
             self.assertTrue(all(max(abs(operator["pos"]["x"]-r["pos"]["x"]),abs(operator["pos"]["y"]-r["pos"]["y"]))==1 for r in towers))
 
-    def test_worker_buys_and_delivers_wall_upgrade(self):
+    def test_worker_buys_and_delivers_critical_front_wall_upgrade(self):
         sim=EconomyRollout();agent=Agent()
         for _ in range(70):sim.step(agent.decide(sim.request))
         p=sim.request;p["roundNo"]=131;p["robot"]["roles"]=[]
         worker=p["teamOur"]["roles"][0]
         worker["pos"]=point(24,19);worker["backpack"]=[]
         p["teamOur"]["goldNum"]=25
-        wall=next(r for r in p["teamOur"]["roles"] if r["roleType"]=="wall")
+        front=set(Layout.for_world(World(p)).walls[:6])
+        wall=next(r for r in p["teamOur"]["roles"] if r["roleType"]=="wall" and tuple(r["pos"].values()) in front)
         wall["health"]=100
         response=agent.decide(p);check(p,response)
         self.assertEqual("WallUpgradeVoucher1",response["roleCommandMap"][str(worker["id"])]["name"])

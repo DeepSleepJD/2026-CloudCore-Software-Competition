@@ -52,7 +52,9 @@ def footprint(r):
 def check(request, response):
     """Raise on illegal commands before applying any simultaneous effects."""
     assert set(response)=={"roleCommandMap","prompt","executeCmd"}
-    assert response["prompt"] == response["executeCmd"] == ""
+    assert isinstance(response["prompt"], str) and isinstance(response["executeCmd"], str)
+    assert not (response["prompt"] and response["executeCmd"])
+    if response["executeCmd"]: assert request.get("phaseTask")
     commands=response["roleCommandMap"]
     assert isinstance(commands,dict)
     roles={str(r["id"]):r for r in request["teamOur"]["roles"] if r["health"]>0}
@@ -66,8 +68,8 @@ def check(request, response):
     for i,c in commands.items():
         assert isinstance(i,str) and i in roles,("unknown actor",i)
         r=roles[i];a=c["action"]
-        assert a in {"move","build","collect","attack","sell","buy","use"},a
-        assert r["roleType"] in ({"rocket"} if a=="attack" else {"worker","pioneer"})
+        assert a in {"move","build","collect","attack","sell","buy","use","acceptTask","submitAnswer","summonTreasure"},a
+        assert r["roleType"] in ({"rocket"} if a=="attack" else {"pioneer"} if a in {"acceptTask","submitAnswer","summonTreasure"} else {"worker","pioneer"})
         if a in {"move","build","collect","attack"} or (a=="use" and c["name"]!="Medicine"):
             ps=c["targetPos"]
             assert isinstance(ps,list) and len(ps)==(r["level"] if a=="attack" else 1)
@@ -117,6 +119,26 @@ def check(request, response):
                     prefix={"Weapon":"rocket","Station":"station","Wall":"wall"}[c["name"].split("Upgrade")[0]]
                     assert target["roleType"]==prefix and target["level"]==int(c["name"][-1])
                 else: assert c["name"]=="WallFixer" and target["roleType"]=="wall"
+        if a in {"acceptTask", "submitAnswer"}:
+            own_points=[z for z in request["mapInfo"]["zones"] if z["neutralType"].startswith(request["teamOur"]["type"]+"TaskPoint")]
+            adjacent=[z for z in own_points if d(r["pos"],z["pos"])==1]
+            assert adjacent
+            if a=="acceptTask":
+                assert not request.get("phaseTask")
+                kinds={z["neutralType"] for z in adjacent}
+                assert any(t.get("isValid") and t.get("coldDownRounds",0)==0 and
+                           any(z["pos"]==t["taskPosition"] and z["neutralType"] in kinds for z in own_points)
+                           for t in request["teamOur"].get("playerTasks",[]))
+            else:
+                assert request.get("phaseTask") and isinstance(c["taskAnswer"],str) and c["taskAnswer"]
+        if a=="summonTreasure":
+            assert isinstance(c["targetPos"],list) and len(c["targetPos"])==1
+            target=c["targetPos"][0]
+            assert set(target)=={"x","y"} and all(type(v) is int for v in target.values())
+            assert 0<=target["x"]<request["mapInfo"]["width"] and 0<=target["y"]<request["mapInfo"]["height"]
+            assert d(r["pos"],target)==1
+            assert isinstance(c["item"],list) and c["item"]
+            assert not (Counter(c["item"])-Counter(r["backpack"]))
     assert cost<=request["teamOur"]["goldNum"],("overspend",cost)
     assert towers<=3
 

@@ -23,15 +23,16 @@ def defended(round_no=261, gold=276, left=False):
 
 
 class SurvivalTests(unittest.TestCase):
-    def test_base_upgrade_has_deadline_before_large_robot_nights(self):
+    def test_healthy_base_never_outranks_underpowered_rockets_by_date(self):
         p = defended()
-        self.assertEqual("StationUpgradeVoucher1", Planner(World(p), {}).upgrade_order())
+        self.assertEqual("WeaponUpgradeVoucher1", Planner(World(p), {}).upgrade_order())
         p["roundNo"] = 391
         p["teamOur"]["roles"][3].update(level=2, health=3000)
-        self.assertEqual("StationUpgradeVoucher2", Planner(World(p), {}).upgrade_order())
+        self.assertEqual("WeaponUpgradeVoucher1", Planner(World(p), {}).upgrade_order())
 
     def test_worker_can_buy_base_upgrade_at_night_while_pioneer_fires(self):
         p = defended(331)
+        p["teamOur"]["roles"][3]["health"] = 400
         p["teamOur"]["roles"][0]["pos"] = point(24, 19)
         p["teamOur"]["roles"][2]["pos"] = point(34, 14)
         p["robot"]["roles"] = [unit(30000, "smallRobot", 23, 8, health=40, targetTeam="defender")]
@@ -81,7 +82,7 @@ class SurvivalTests(unittest.TestCase):
         self.assertTrue(any(c["action"] == "use" and c.get("name") == "StationUpgradeVoucher1" for c in commands))
         self.assertFalse(any(c["action"] == "buy" and c.get("name") == "StationUpgradeVoucher1" for c in commands))
 
-    def test_saved_cash_converts_to_base_levels_with_workers_in_doorway(self):
+    def test_saved_cash_improves_firepower_and_walls_before_healthy_base(self):
         sim, agent = EconomyRollout(), Agent()
         p = sim.request = defended(261, 276)
         p["mapInfo"]["zones"] = [z for z in p["mapInfo"]["zones"]
@@ -89,7 +90,10 @@ class SurvivalTests(unittest.TestCase):
         for _ in range(100):
             sim.step(agent.decide(p))
         station = next(r for r in p["teamOur"]["roles"] if r["roleType"] == "station")
-        self.assertEqual(3, station["level"])
+        self.assertEqual(1, station["level"])
+        rockets = [r["level"] for r in p["teamOur"]["roles"] if r["roleType"] == "rocket"]
+        self.assertEqual([2, 2, 3], sorted(rockets))
+        self.assertTrue(any(r["roleType"] == "wall" and r["level"] == 2 for r in p["teamOur"]["roles"]))
 
     def test_healthy_repair_worker_keeps_post_until_wall_needs_repair(self):
         p = defended(331, 0)

@@ -22,7 +22,11 @@ def baseline_agent(ref):
     package.__path__ = []
     sys.modules[namespace] = package
     # Only read explicitly requested local Git objects; no checkout or network.
-    for name in ("model", "navigation", "combat", "strategy"):
+    available = subprocess.check_output(["git", "ls-tree", "-r", "--name-only", ref, "agent"],
+                                        cwd=ROOT, encoding="utf-8").splitlines()
+    for name in ("model", "navigation", "combat", "logistics", "tasks", "treasure", "strategy"):
+        if f"agent/{name}.py" not in available:
+            continue
         source = subprocess.check_output(
             ["git", "-c", f"safe.directory={ROOT.as_posix()}", "show", f"{ref}:agent/{name}.py"],
             cwd=ROOT, encoding="utf-8")

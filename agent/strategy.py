@@ -1,8 +1,12 @@
 """Daytime construction/economy and one-operator nighttime defence."""
+from copy import deepcopy
 from .model import World, Layout, ORES, command, distance, neighbours, wire
 from .navigation import paths
 from .combat import rocket_targets
-from .logistics import upgrade_goal, repair_stock, max_health
+from .logistics import (upgrade_goal, repair_stock, max_health, repair_reserve,
+                        shopping_goal, purchase_quantity)
+from .tasks import TaskScheduler
+from .treasure import TreasureScheduler
 
 
 class Planner:
@@ -19,11 +23,21 @@ class Planner:
         self.upgrade_reserve = 0
         self.delivery_owner = None
         self.bought = set()
+        self.claimed = set()
         self.operator = min(world.actors, key=lambda r: (r.kind != "pioneer", distance(r.p, self.layout.operator), r.id)) if world.actors else None
+        if not world.day:
+            incumbent = next((r for r in world.actors if r.id == self.memory.get("night_operator")), None)
+            at_post = next((r for r in world.actors if r.p == self.layout.operator), None)
+            self.operator = at_post or incumbent or self.operator
+            if self.operator:
+                self.memory["night_operator"] = self.operator.id
+        else:
+            self.memory.pop("night_operator", None)
         self.wall_missing = [p for p in self.layout.walls if not any(r.p == p for r in world.walls)]
         self.danger = {p for r in world.robots for x in range(-4, 5) for y in range(-4, 5)
                        for p in [(r.p[0] + x, r.p[1] + y)] if world.inside(p)}
-        self.maintainer = max(world.workers, key=lambda r: (r.health >= 80, r.bag.count("WallFixer"), -r.id), default=None)
+        self.maintainer = max((r for r in world.workers if world.day or r != self.operator),
+                              key=lambda r: (r.health >= 80, r.bag.count("WallFixer"), -r.id), default=None)
 
     def maintenance_cells(self, actor):
         if actor.health < 80:
@@ -191,18 +205,19 @@ class Planner:
             self.memory.pop("courier", None)
             return
         name, target = goal
-        # When both base upgrades are due, do not spend their second voucher's
-        # money on repeated shopping while the first voucher is in transit.
-        followup_reserve = (self.w.shop.get("StationUpgradeVoucher2", 150)
-                            if name == "StationUpgradeVoucher1" and self.w.round >= 261
-                            and any(r.kind == "rocket" and r.level == 3 for r in self.w.towers) else 0)
         carriers = [r for r in self.w.actors if name in r.bag]
         price = self.w.shop.get(name)
         build_reserve = 25 * max(0, 3 - self.build_count)
-        if not carriers and (price is None or self.budget < price + build_reserve):
+        emergency = target.health <= 0.35 * max_health(target)
+        reserve = build_reserve + (0 if emergency else repair_reserve(self.w))
+        if not carriers and (price is None or self.budget < price + reserve):
             return
         candidates = []
         for actor in carriers or self.w.actors:
+            if actor.id in self.claimed or str(actor.id) in self.commands:
+                continue
+            if not carriers and any("UpgradeVoucher" in item for item in actor.bag):
+                continue  # Finish the previous delivery before starting a new one.
             if not self.w.day and actor == self.operator:
                 continue
             if actor.kind == "pioneer" and self.w.raw.get("phaseTask"):
@@ -242,28 +257,38 @@ class Planner:
         self.memory["courier"] = (actor.id, name, target.id)
         self.memory["delivery_active"] = name
         if carriers:
-            self.upgrade_reserve = followup_reserve
+            # While still at the shop, add the next investment to the same trip.
+            # Do not extend an emergency delivery or delay the dusk return.
+            at_shop = any(k == "weaponShop" and distance(actor.p, q) == 1
+                          for q, k in self.w.zones.items())
+            next_goal, _ = shopping_goal(self.w, actor.bag)
+            if (at_shop and not emergency and next_goal
+                    and (actor != self.operator or self.home_distance(actor) + 12 < 70 - self.w.day_tick)
+                    and self.purchase(actor, next_goal[0], reserve=reserve,
+                                      quantity=purchase_quantity(self.w, next_goal[0], actor.bag))):
+                return
+            self.upgrade_reserve = 0
             success = self.approach(actor, target.p, command("use", target.p, name=name), maintenance=True)
         else:
-            self.upgrade_reserve = price + followup_reserve
-            success = self.purchase(actor, name, reserve=build_reserve)
+            self.upgrade_reserve = price
+            success = self.purchase(actor, name, reserve=reserve,
+                                    quantity=purchase_quantity(self.w, name, actor.bag))
             if success and self.commands[str(actor.id)]["action"] == "buy":
-                self.upgrade_reserve = followup_reserve
+                self.upgrade_reserve = 0
         if success:
             self.sites.add(target.p)
         else:
             self.upgrade_reserve = 0
 
     def maintenance(self, actor):
-        if actor != self.maintainer or self.build_count < 3 or self.wall_missing:
+        if actor != self.maintainer or self.build_count < 3 or not self.w.walls:
             return False
         stock = repair_stock(self.w)
         carried = actor.bag.count("WallFixer")
-        damaged = sorted((r for r in self.w.walls if self.repair_needed(r)), key=lambda r: (r.health, r.id))
-        if damaged and damaged[0].level < 3:
-            if self.purchase(actor, f"WallUpgradeVoucher{damaged[0].level}"):
-                return True
-        if carried < stock:
+        under_attack = not self.w.day and any(self.w.base_distance(r.p) <= 8 for r in self.w.robots)
+        # The investment policy buys upgrades; maintenance buys consumables.
+        # Never abandon a viable repair post just to top up a nonempty bag.
+        if carried < stock and not (under_attack and carried):
             if self.purchase(actor, "WallFixer", quantity=stock - carried):
                 return True
         if stock and carried and (not self.w.day or self.w.day_tick >= 50):
@@ -321,6 +346,8 @@ class Planner:
     def worker(self, actor):
         if self.use_supplies(actor) or self.retreat(actor):
             return
+        if not self.w.day and "WallFixer" in actor.bag and self.maintenance(actor):
+            return
         if self.w.day:
             if self.build_count < 3 and self.budget >= 25 and self.build(actor, "rocket", self.layout.towers):
                 return
@@ -356,9 +383,22 @@ class Planner:
                     self.emit(actor, command("move", first[goal]))
 
     def run(self):
+        tasks = TaskScheduler(self)
+        if tasks.run() and tasks.actor:
+            self.claimed.add(tasks.actor.id)
+        treasure = TreasureScheduler(self)
+        treasure_prompt = treasure.infer(bool(self.w.raw.get("phaseTask") or tasks.m["active"]
+                                             or tasks.prompt or tasks.execute))
         # Night control is assigned first so a fallback worker never also mines/moves.
-        if not self.w.day and self.operator:
+        if not self.w.day and self.operator and self.operator.id not in self.claimed:
             self.operate(self.operator)
+        # Immediate repairs take precedence over sending a worker to the shop.
+        for worker in self.w.workers:
+            if worker == self.operator or str(worker.id) in self.commands:
+                continue
+            if ("WallFixer" in worker.bag and any(self.repair_needed(wall)
+                    and distance(worker.p, wall.p) == 1 for wall in self.w.walls)):
+                self.use_supplies(worker)
         self.delivery()
         for worker in self.w.workers:
             if (not self.w.day and worker == self.operator) or str(worker.id) in self.commands:
@@ -366,6 +406,8 @@ class Planner:
             self.worker(worker)
         for actor in self.w.actors:
             if actor.kind != "pioneer":
+                continue
+            if actor.id in self.claimed:
                 continue
             if str(actor.id) in self.commands:
                 continue
@@ -377,10 +419,12 @@ class Planner:
             if 70 - self.w.day_tick <= return_margin:
                 self.operate(actor)
                 continue
+            if treasure.act(actor):
+                continue
             if self.use_supplies(actor):
                 continue
             self.operate(actor)
-        return {"roleCommandMap": self.commands, "prompt": "", "executeCmd": ""}
+        return {"roleCommandMap": self.commands, "prompt": tasks.prompt or treasure_prompt, "executeCmd": tasks.execute}
 
 
 class Agent:
@@ -392,13 +436,18 @@ class Agent:
         self.avoided = {}
         self.memory = {}
         self.health = {}
+        self.cached_response = None
 
     def decide(self, request):
         world = World(request)
-        if not world.station or not world.actors:
+        if not world.station:
+            self.memory = {}
+            self.cached_response = None
             return {"roleCommandMap": {}, "prompt": "", "executeCmd": ""}
-        key = (request["teamOur"].get("teamId"), world.team, world.station.p)
-        if key != self.key or world.round <= self.last_round:
+        key = (request.get("matchId"), request["teamOur"].get("teamId"), world.team, world.station.p)
+        if key == self.key and world.round == self.last_round and self.cached_response is not None:
+            return deepcopy(self.cached_response)
+        if key != self.key or world.round < self.last_round:
             self.previous, self.avoided = {}, {}
             self.memory, self.health = {}, {}
         if world.round == self.last_round + 1:
@@ -418,4 +467,5 @@ class Agent:
         self.health = {r.id: r.health for r in world.ours}
         self.key, self.last_round = key, world.round
         self.previous = response["roleCommandMap"]
+        self.cached_response = deepcopy(response)
         return response

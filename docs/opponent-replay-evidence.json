@@ -1,0 +1,1923 @@
+{
+  "scope": "Post-action replay observations and offline action legality; no real survival prediction. No solver transcript or reusable answers.",
+  "matches": [
+    {
+      "file": "对战_泥头车.json",
+      "ignoredTrailerLines": [
+        756
+      ],
+      "teams": [
+        {
+          "id": "4289",
+          "name": "对了对了不队",
+          "baseDestroyedRound": 639,
+          "completedTasks": [],
+          "upgradeEvents": [
+            {
+              "round": 114,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 20
+                }
+              ]
+            },
+            {
+              "round": 137,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 21
+                }
+              ]
+            },
+            {
+              "round": 203,
+              "name": "StationUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 273,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 23
+                }
+              ]
+            },
+            {
+              "round": 305,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 20
+                }
+              ]
+            },
+            {
+              "round": 418,
+              "name": "StationUpgradeVoucher2",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 456,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 24
+                }
+              ]
+            },
+            {
+              "round": 540,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 8,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 581,
+              "name": "WallUpgradeVoucher2",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 24
+                }
+              ]
+            }
+          ],
+          "snapshots": {
+            "70": {
+              "gold": 103,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                1
+              ],
+              "wallLevels": {
+                "1": 12
+              }
+            },
+            "200": {
+              "gold": 3,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 11,
+                "2": 1
+              }
+            },
+            "330": {
+              "gold": 60,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                1,
+                1,
+                3
+              ],
+              "wallLevels": {
+                "1": 10,
+                "2": 2
+              }
+            },
+            "460": {
+              "gold": 77,
+              "base": {
+                "level": 3,
+                "health": 4500
+              },
+              "rockets": [
+                1,
+                1,
+                3
+              ],
+              "wallLevels": {
+                "1": 10,
+                "2": 2
+              }
+            },
+            "590": {
+              "gold": 7,
+              "base": {
+                "level": 3,
+                "health": 2715
+              },
+              "rockets": [
+                1,
+                2,
+                3
+              ],
+              "wallLevels": {
+                "1": 10,
+                "2": 1,
+                "3": 1
+              }
+            },
+            "720": {
+              "gold": 82,
+              "base": null,
+              "rockets": [],
+              "wallLevels": {}
+            }
+          },
+          "actions": {
+            "build:rocket": 3,
+            "move": 938,
+            "collect": 214,
+            "build:wall": 18,
+            "sell:copper": 16,
+            "sell:stone": 3,
+            "attack": 179,
+            "buy:WeaponUpgradeVoucher1": 3,
+            "use:WeaponUpgradeVoucher1": 2,
+            "sell:iron": 2,
+            "buy:WallUpgradeVoucher1": 3,
+            "use:WallUpgradeVoucher1": 3,
+            "buy:WallFixer": 1,
+            "buy:StationUpgradeVoucher1": 1,
+            "use:StationUpgradeVoucher1": 1,
+            "use:WallFixer": 2,
+            "buy:WeaponUpgradeVoucher2": 1,
+            "use:WeaponUpgradeVoucher2": 1,
+            "buy:StationUpgradeVoucher2": 1,
+            "use:StationUpgradeVoucher2": 1,
+            "buy:WallUpgradeVoucher2": 1,
+            "use:WallUpgradeVoucher2": 1
+          }
+        },
+        {
+          "id": "4351",
+          "name": "泥头车",
+          "baseDestroyedRound": 753,
+          "completedTasks": [
+            {
+              "round": 10,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 15,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 46,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 101,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": true,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 107,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": true,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 136,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            }
+          ],
+          "upgradeEvents": [
+            {
+              "round": 28,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 35,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 64,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 151,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 152,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 174,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 301,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 407,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 508,
+              "name": "StationUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 30,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 545,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 645,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 654,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 681,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 702,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 9
+                }
+              ]
+            }
+          ],
+          "snapshots": {
+            "70": {
+              "gold": 20,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                2,
+                2
+              ],
+              "wallLevels": {
+                "2": 1,
+                "1": 11
+              }
+            },
+            "200": {
+              "gold": 62,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                2,
+                2,
+                3
+              ],
+              "wallLevels": {
+                "3": 1,
+                "1": 15
+              }
+            },
+            "330": {
+              "gold": 90,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                2,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "3": 1,
+                "1": 15
+              }
+            },
+            "460": {
+              "gold": 65,
+              "base": {
+                "level": 1,
+                "health": 1160
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "3": 1,
+                "1": 15
+              }
+            },
+            "590": {
+              "gold": 48,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "3": 1,
+                "2": 1,
+                "1": 14
+              }
+            },
+            "720": {
+              "gold": 11,
+              "base": {
+                "level": 2,
+                "health": 1280
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "2": 5,
+                "1": 11
+              }
+            }
+          },
+          "actions": {
+            "move": 1432,
+            "build:rocket": 3,
+            "acceptTask": 6,
+            "collect": 157,
+            "submitAnswer": 6,
+            "build:wall": 25,
+            "buy:WeaponUpgradeVoucher1": 3,
+            "buy:WallUpgradeVoucher1": 4,
+            "use:WeaponUpgradeVoucher1": 3,
+            "use:WallUpgradeVoucher1": 6,
+            "attack": 160,
+            "sell:stone": 4,
+            "sell:copper": 9,
+            "buy:WallUpgradeVoucher2": 1,
+            "use:WallUpgradeVoucher2": 1,
+            "buy:WeaponUpgradeVoucher2": 3,
+            "use:WeaponUpgradeVoucher2": 3,
+            "sell:iron": 6,
+            "remove": 4,
+            "buy:StationUpgradeVoucher1": 1,
+            "use:StationUpgradeVoucher1": 1
+          }
+        }
+      ],
+      "validatedSnapshots": 1390,
+      "maxDecisionSeconds": 0.06349900001077913
+    },
+    {
+      "file": "对战_违规昵称Plus.json",
+      "ignoredTrailerLines": [
+        1021
+      ],
+      "teams": [
+        {
+          "id": "4289",
+          "name": "对了对了不队",
+          "baseDestroyedRound": 642,
+          "completedTasks": [],
+          "upgradeEvents": [
+            {
+              "round": 129,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 20
+                }
+              ]
+            },
+            {
+              "round": 159,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 21
+                }
+              ]
+            },
+            {
+              "round": 262,
+              "name": "StationUpgradeVoucher1",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 417,
+              "name": "StationUpgradeVoucher2",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 463,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 20
+                }
+              ]
+            },
+            {
+              "round": 542,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 20
+                }
+              ]
+            },
+            {
+              "round": 577,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 8,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 612,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 19
+                }
+              ]
+            }
+          ],
+          "snapshots": {
+            "70": {
+              "gold": 0,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                1
+              ],
+              "wallLevels": {
+                "1": 12
+              }
+            },
+            "200": {
+              "gold": 35,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 11,
+                "2": 1
+              }
+            },
+            "330": {
+              "gold": 95,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 11,
+                "2": 1
+              }
+            },
+            "460": {
+              "gold": 150,
+              "base": {
+                "level": 3,
+                "health": 4500
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 12
+              }
+            },
+            "590": {
+              "gold": 0,
+              "base": {
+                "level": 3,
+                "health": 2665
+              },
+              "rockets": [
+                1,
+                2,
+                3
+              ],
+              "wallLevels": {
+                "1": 11,
+                "2": 1
+              }
+            },
+            "720": {
+              "gold": 0,
+              "base": null,
+              "rockets": [],
+              "wallLevels": {}
+            }
+          },
+          "actions": {
+            "build:rocket": 3,
+            "move": 972,
+            "collect": 222,
+            "build:wall": 20,
+            "attack": 185,
+            "sell:iron": 2,
+            "sell:copper": 11,
+            "buy:WeaponUpgradeVoucher1": 2,
+            "use:WeaponUpgradeVoucher1": 2,
+            "buy:WallUpgradeVoucher1": 3,
+            "sell:stone": 1,
+            "use:WallUpgradeVoucher1": 3,
+            "buy:WallFixer": 2,
+            "buy:StationUpgradeVoucher1": 1,
+            "use:WallFixer": 5,
+            "use:StationUpgradeVoucher1": 1,
+            "buy:StationUpgradeVoucher2": 1,
+            "use:StationUpgradeVoucher2": 1,
+            "buy:WeaponUpgradeVoucher2": 1,
+            "use:WeaponUpgradeVoucher2": 1
+          }
+        },
+        {
+          "id": "4606",
+          "name": "违规昵称Plus",
+          "baseDestroyedRound": 1018,
+          "completedTasks": [
+            {
+              "round": 10,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 15,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 45,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 50,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 112,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": true,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 117,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 1,
+              "night": true,
+              "ownRobotsAlive": 0
+            }
+          ],
+          "upgradeEvents": [
+            {
+              "round": 43,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 150,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 152,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 153,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 9
+                }
+              ]
+            },
+            {
+              "round": 154,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 156,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 166,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 170,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 174,
+              "name": "StationUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 30,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 177,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 289,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 290,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 291,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 292,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 9
+                }
+              ]
+            },
+            {
+              "round": 294,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 318,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 414,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 417,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 540,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 555,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 556,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 30,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 570,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 29,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 682,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 29,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 683,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 30,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 685,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 686,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 29,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 836,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 9
+                }
+              ]
+            }
+          ],
+          "snapshots": {
+            "70": {
+              "gold": 120,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 12
+              }
+            },
+            "200": {
+              "gold": 15,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                2,
+                2,
+                3
+              ],
+              "wallLevels": {
+                "2": 5,
+                "1": 7
+              }
+            },
+            "330": {
+              "gold": 15,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                2,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "3": 4,
+                "2": 2,
+                "1": 6
+              }
+            },
+            "460": {
+              "gold": 135,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "3": 5,
+                "2": 1,
+                "1": 6
+              }
+            },
+            "590": {
+              "gold": 15,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "3": 6,
+                "2": 3,
+                "1": 3
+              }
+            },
+            "720": {
+              "gold": 85,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "3": 7,
+                "2": 5
+              }
+            }
+          },
+          "actions": {
+            "move": 1482,
+            "build:rocket": 3,
+            "collect": 344,
+            "acceptTask": 6,
+            "submitAnswer": 6,
+            "buy:WeaponUpgradeVoucher1": 3,
+            "build:wall": 16,
+            "use:WeaponUpgradeVoucher1": 3,
+            "attack": 277,
+            "sell:copper": 15,
+            "buy:WallUpgradeVoucher1": 7,
+            "use:WallUpgradeVoucher1": 13,
+            "buy:WeaponUpgradeVoucher2": 3,
+            "buy:StationUpgradeVoucher1": 1,
+            "use:WeaponUpgradeVoucher2": 3,
+            "use:StationUpgradeVoucher1": 1,
+            "buy:WallUpgradeVoucher2": 4,
+            "buy:WallFixer": 12,
+            "use:WallUpgradeVoucher2": 7,
+            "use:WallFixer": 36
+          }
+        }
+      ],
+      "validatedSnapshots": 1658,
+      "maxDecisionSeconds": 0.05343720002565533
+    },
+    {
+      "file": "对战_Agentic麻辣烫.json",
+      "ignoredTrailerLines": [
+        1289
+      ],
+      "teams": [
+        {
+          "id": "4289",
+          "name": "对了对了不队",
+          "baseDestroyedRound": 632,
+          "completedTasks": [],
+          "upgradeEvents": [
+            {
+              "round": 116,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 21
+                }
+              ]
+            },
+            {
+              "round": 163,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 20
+                }
+              ]
+            },
+            {
+              "round": 269,
+              "name": "StationUpgradeVoucher1",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 333,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 19
+                }
+              ]
+            },
+            {
+              "round": 421,
+              "name": "StationUpgradeVoucher2",
+              "actor": 10012,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 22
+                }
+              ]
+            },
+            {
+              "round": 455,
+              "name": "WallUpgradeVoucher1",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 12,
+                  "y": 24
+                }
+              ]
+            },
+            {
+              "round": 544,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 10010,
+              "target": [
+                {
+                  "x": 9,
+                  "y": 20
+                }
+              ]
+            }
+          ],
+          "snapshots": {
+            "70": {
+              "gold": 90,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                1
+              ],
+              "wallLevels": {
+                "1": 12
+              }
+            },
+            "200": {
+              "gold": 43,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 11,
+                "2": 1
+              }
+            },
+            "330": {
+              "gold": 103,
+              "base": {
+                "level": 2,
+                "health": 3000
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 11,
+                "2": 1
+              }
+            },
+            "460": {
+              "gold": 53,
+              "base": {
+                "level": 3,
+                "health": 4500
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 10,
+                "2": 2
+              }
+            },
+            "590": {
+              "gold": 12,
+              "base": {
+                "level": 3,
+                "health": 2195
+              },
+              "rockets": [
+                1,
+                1,
+                3
+              ],
+              "wallLevels": {
+                "1": 10,
+                "2": 2
+              }
+            },
+            "720": {
+              "gold": 12,
+              "base": null,
+              "rockets": [],
+              "wallLevels": {}
+            },
+            "1240": {
+              "gold": 12,
+              "base": null,
+              "rockets": [],
+              "wallLevels": {}
+            }
+          },
+          "actions": {
+            "build:rocket": 3,
+            "move": 976,
+            "collect": 186,
+            "build:wall": 21,
+            "sell:iron": 4,
+            "sell:copper": 14,
+            "sell:stone": 1,
+            "attack": 177,
+            "buy:WallUpgradeVoucher1": 3,
+            "buy:Medicine": 2,
+            "use:Medicine": 2,
+            "use:WallUpgradeVoucher1": 3,
+            "buy:WeaponUpgradeVoucher1": 2,
+            "use:WeaponUpgradeVoucher1": 1,
+            "buy:WallFixer": 1,
+            "use:WallFixer": 2,
+            "buy:StationUpgradeVoucher1": 1,
+            "use:StationUpgradeVoucher1": 1,
+            "buy:StationUpgradeVoucher2": 1,
+            "use:StationUpgradeVoucher2": 1,
+            "buy:WeaponUpgradeVoucher2": 1,
+            "use:WeaponUpgradeVoucher2": 1
+          }
+        },
+        {
+          "id": "4284",
+          "name": "Agentic麻辣烫",
+          "baseDestroyedRound": 1286,
+          "completedTasks": [
+            {
+              "round": 14,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 3,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 21,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 3,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 104,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 3,
+              "night": true,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 112,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 4,
+              "night": true,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 156,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 3,
+              "night": false,
+              "ownRobotsAlive": 0
+            },
+            {
+              "round": 163,
+              "passRate": 1.0,
+              "rewardReported": 80,
+              "roundCost": 3,
+              "night": false,
+              "ownRobotsAlive": 0
+            }
+          ],
+          "upgradeEvents": [
+            {
+              "round": 37,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 9
+                }
+              ]
+            },
+            {
+              "round": 144,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 9
+                }
+              ]
+            },
+            {
+              "round": 145,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 269,
+              "name": "WeaponUpgradeVoucher1",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 278,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 9
+                }
+              ]
+            },
+            {
+              "round": 280,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 300,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 10
+                }
+              ]
+            },
+            {
+              "round": 303,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 32,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 304,
+              "name": "WeaponUpgradeVoucher2",
+              "actor": 20011,
+              "target": [
+                {
+                  "x": 31,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 305,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 9
+                }
+              ]
+            },
+            {
+              "round": 317,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 318,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 439,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 440,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 442,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 11
+                }
+              ]
+            },
+            {
+              "round": 443,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 542,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 543,
+              "name": "WallUpgradeVoucher2",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 28,
+                  "y": 8
+                }
+              ]
+            },
+            {
+              "round": 668,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 29,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 691,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 29,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 815,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 30,
+                  "y": 7
+                }
+              ]
+            },
+            {
+              "round": 823,
+              "name": "WallUpgradeVoucher1",
+              "actor": 20012,
+              "target": [
+                {
+                  "x": 30,
+                  "y": 12
+                }
+              ]
+            },
+            {
+              "round": 1266,
+              "name": "StationUpgradeVoucher1",
+              "actor": 20010,
+              "target": [
+                {
+                  "x": 30,
+                  "y": 10
+                }
+              ]
+            }
+          ],
+          "snapshots": {
+            "70": {
+              "gold": 95,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                1,
+                2
+              ],
+              "wallLevels": {
+                "1": 10
+              }
+            },
+            "200": {
+              "gold": 160,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                1,
+                2,
+                3
+              ],
+              "wallLevels": {
+                "1": 10
+              }
+            },
+            "330": {
+              "gold": 315,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "1": 6,
+                "3": 2,
+                "2": 2
+              }
+            },
+            "460": {
+              "gold": 260,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "1": 6,
+                "3": 4,
+                "2": 2
+              }
+            },
+            "590": {
+              "gold": 12,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "1": 6,
+                "3": 6
+              }
+            },
+            "720": {
+              "gold": 12,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "1": 4,
+                "2": 2,
+                "3": 6
+              }
+            },
+            "1240": {
+              "gold": 22,
+              "base": {
+                "level": 1,
+                "health": 1500
+              },
+              "rockets": [
+                3,
+                3,
+                3
+              ],
+              "wallLevels": {
+                "2": 4,
+                "3": 6,
+                "1": 4
+              }
+            }
+          },
+          "actions": {
+            "move": 1721,
+            "build:rocket": 3,
+            "collect": 233,
+            "build:wall": 14,
+            "acceptTask": 6,
+            "submitAnswer": 6,
+            "buy:WeaponUpgradeVoucher1": 3,
+            "use:WeaponUpgradeVoucher1": 3,
+            "sell:copper": 16,
+            "attack": 314,
+            "buy:WeaponUpgradeVoucher2": 2,
+            "use:WeaponUpgradeVoucher2": 3,
+            "buy:WallFixer": 15,
+            "buy:WallUpgradeVoucher1": 8,
+            "use:WallUpgradeVoucher1": 10,
+            "sell:iron": 5,
+            "buy:WallUpgradeVoucher2": 4,
+            "use:WallUpgradeVoucher2": 6,
+            "use:WallFixer": 39,
+            "buy:StationUpgradeVoucher1": 1,
+            "buy:AcientTablet": 1,
+            "buy:FlameBreath": 1,
+            "buy:StarSand": 1,
+            "summonTreasure": 1,
+            "buy:StationUpgradeVoucher2": 1,
+            "use:StationUpgradeVoucher1": 1
+          }
+        }
+      ],
+      "validatedSnapshots": 1916,
+      "maxDecisionSeconds": 0.06247319999965839
+    }
+  ]
+}

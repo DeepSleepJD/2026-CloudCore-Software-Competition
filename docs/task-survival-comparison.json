@@ -1,0 +1,158 @@
+{
+  "scope": "Controlled economy and scripted wall damage; no official robot AI or survival score.",
+  "baselineCommit": "43126df",
+  "before": {
+    "fixedCash": {
+      "initialGold": 276,
+      "income": 0,
+      "baseUpgradeRounds": {
+        "2": 288,
+        "3": 306
+      },
+      "finalBaseLevel": 3,
+      "remainingGold": 6
+    },
+    "wallPressure": {
+      "rounds": 60,
+      "scriptedDamagePerRound": 80,
+      "repairs": 6,
+      "firstWallBreachRound": null,
+      "finalWallHealth": 1520
+    },
+    "economy": [
+      {
+        "side": "left",
+        "rounds": 260,
+        "upgrades": [
+          {
+            "round": 111,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10040
+          },
+          {
+            "round": 170,
+            "kind": "station",
+            "level": 2,
+            "id": 10013
+          }
+        ],
+        "actions": {
+          "build": 15,
+          "move": 366,
+          "collect": 91,
+          "attack": 90,
+          "sell": 8,
+          "buy": 4,
+          "use": 2
+        },
+        "remainingGold": 1
+      },
+      {
+        "side": "right",
+        "rounds": 260,
+        "upgrades": [
+          {
+            "round": 106,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20040
+          },
+          {
+            "round": 171,
+            "kind": "station",
+            "level": 2,
+            "id": 20013
+          }
+        ],
+        "actions": {
+          "move": 323,
+          "build": 15,
+          "collect": 96,
+          "attack": 90,
+          "sell": 12,
+          "buy": 3,
+          "use": 2
+        },
+        "remainingGold": 152
+      }
+    ]
+  },
+  "after": {
+    "fixedCash": {
+      "initialGold": 276,
+      "income": 0,
+      "baseUpgradeRounds": {
+        "2": 288,
+        "3": 306
+      },
+      "finalBaseLevel": 3,
+      "remainingGold": 6
+    },
+    "wallPressure": {
+      "rounds": 60,
+      "scriptedDamagePerRound": 80,
+      "repairs": 6,
+      "firstWallBreachRound": null,
+      "finalWallHealth": 1520
+    },
+    "economy": [
+      {
+        "side": "left",
+        "rounds": 260,
+        "upgrades": [
+          {
+            "round": 111,
+            "kind": "rocket",
+            "level": 2,
+            "id": 10040
+          },
+          {
+            "round": 170,
+            "kind": "station",
+            "level": 2,
+            "id": 10013
+          }
+        ],
+        "actions": {
+          "build": 15,
+          "move": 366,
+          "collect": 91,
+          "attack": 90,
+          "sell": 8,
+          "buy": 4,
+          "use": 2
+        },
+        "remainingGold": 1
+      },
+      {
+        "side": "right",
+        "rounds": 260,
+        "upgrades": [
+          {
+            "round": 106,
+            "kind": "rocket",
+            "level": 2,
+            "id": 20040
+          },
+          {
+            "round": 171,
+            "kind": "station",
+            "level": 2,
+            "id": 20013
+          }
+        ],
+        "actions": {
+          "move": 323,
+          "build": 15,
+          "collect": 96,
+          "attack": 90,
+          "sell": 12,
+          "buy": 3,
+          "use": 2
+        },
+        "remainingGold": 152
+      }
+    ]
+  }
+}

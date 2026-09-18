@@ -1,0 +1,349 @@
+{
+  "scope": "Controlled income and movement only; maximum six 80-gold synthetic tasks. Stationary robot wave is forcibly cleared after round 95 each day; no damage, official AI, real LLM or survival scores.",
+  "baseline": "C:\\Users\\10859\\AppData\\Local\\Temp\\cloudcore-balance-baseline-994887d99e55463b8165edb36acc6ee9\\agent",
+  "rounds": 650,
+  "before": {
+    "fixed276GoldNoIncome": {
+      "baseLevel": 3,
+      "rocketLevels": [
+        1,
+        1,
+        3
+      ],
+      "reinforcedWalls": 0,
+      "maxWalls": 0,
+      "gold": 6
+    },
+    "taskEconomy": [
+      {
+        "side": "left",
+        "taskSuccesses": 6,
+        "taskGold": 480,
+        "milestones": {
+          "firstMaxRocket": 111,
+          "allMaxRockets": 421
+        },
+        "snapshots": {
+          "70": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              1,
+              1,
+              2
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 60
+          },
+          "200": {
+            "baseLevel": 2,
+            "rocketLevels": [
+              1,
+              2,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 91
+          },
+          "330": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              2,
+              2,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 41
+          },
+          "460": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 66
+          },
+          "590": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 331
+          },
+          "650": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 387
+          }
+        },
+        "maxDecisionSeconds": 0.05417019999003969
+      },
+      {
+        "side": "right",
+        "taskSuccesses": 6,
+        "taskGold": 480,
+        "milestones": {
+          "firstMaxRocket": 103,
+          "allMaxRockets": 394
+        },
+        "snapshots": {
+          "70": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              1,
+              1,
+              2
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 60
+          },
+          "200": {
+            "baseLevel": 2,
+            "rocketLevels": [
+              2,
+              2,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 25
+          },
+          "330": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              2,
+              3,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 76
+          },
+          "460": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 142
+          },
+          "590": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 350
+          },
+          "650": {
+            "baseLevel": 3,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 406
+          }
+        },
+        "maxDecisionSeconds": 0.05417489999672398
+      }
+    ]
+  },
+  "after": {
+    "fixed276GoldNoIncome": {
+      "baseLevel": 1,
+      "rocketLevels": [
+        2,
+        2,
+        3
+      ],
+      "reinforcedWalls": 2,
+      "maxWalls": 0,
+      "gold": 6
+    },
+    "taskEconomy": [
+      {
+        "side": "left",
+        "taskSuccesses": 6,
+        "taskGold": 480,
+        "milestones": {
+          "firstMaxRocket": 111,
+          "allMaxRockets": 318,
+          "sixReinforcedWalls": 355
+        },
+        "snapshots": {
+          "70": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              1,
+              1,
+              2
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 60
+          },
+          "200": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              2,
+              2,
+              3
+            ],
+            "reinforcedWalls": 2,
+            "maxWalls": 0,
+            "gold": 11
+          },
+          "330": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 4,
+            "maxWalls": 0,
+            "gold": 3
+          },
+          "460": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 6,
+            "maxWalls": 3,
+            "gold": 11
+          },
+          "590": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 6,
+            "maxWalls": 6,
+            "gold": 85
+          },
+          "650": {
+            "baseLevel": 2,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 6,
+            "maxWalls": 6,
+            "gold": 0
+          }
+        },
+        "maxDecisionSeconds": 0.046180599980289117
+      },
+      {
+        "side": "right",
+        "taskSuccesses": 6,
+        "taskGold": 480,
+        "milestones": {
+          "firstMaxRocket": 104,
+          "allMaxRockets": 280,
+          "sixReinforcedWalls": 316
+        },
+        "snapshots": {
+          "70": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              1,
+              1,
+              2
+            ],
+            "reinforcedWalls": 0,
+            "maxWalls": 0,
+            "gold": 60
+          },
+          "200": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              2,
+              3,
+              3
+            ],
+            "reinforcedWalls": 2,
+            "maxWalls": 0,
+            "gold": 48
+          },
+          "330": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 6,
+            "maxWalls": 1,
+            "gold": 18
+          },
+          "460": {
+            "baseLevel": 1,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 6,
+            "maxWalls": 5,
+            "gold": 3
+          },
+          "590": {
+            "baseLevel": 2,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 6,
+            "maxWalls": 6,
+            "gold": 33
+          },
+          "650": {
+            "baseLevel": 2,
+            "rocketLevels": [
+              3,
+              3,
+              3
+            ],
+            "reinforcedWalls": 6,
+            "maxWalls": 6,
+            "gold": 89
+          }
+        },
+        "maxDecisionSeconds": 0.04141550001804717
+      }
+    ]
+  }
+}
