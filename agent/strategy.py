@@ -8,6 +8,7 @@ class Planner:
     def __init__(self, world, avoided):
         self.w = world
         self.layout = Layout.for_world(world)
+        self.front = set(self.layout.front)
         self.avoided = avoided
         self.commands = {}
         self.reserved = set()
@@ -110,6 +111,9 @@ class Planner:
                 priority = 0 if unit.kind == "station" and unit.health < 1200 else 1 if unit.kind == "rocket" else 2
                 if unit.kind == "wall":
                     priority = (0.5 if unit.health < 350 else 2) + unit.health / (1000 + 500 * (unit.level - 1))
+                    # Front walls outrank every cap wall; caps only see vouchers once no front wall does.
+                    if unit.p not in self.front:
+                        priority += 10
                 options.append((priority, distance(actor.p, unit.p), unit.p, name))
             max_health = 1000 + 500 * (unit.level - 1)
             if unit.kind == "wall" and unit.health < max_health * 0.65 and "WallFixer" in actor.bag:
@@ -222,13 +226,20 @@ class Planner:
                 if self.purchase(actor, f"StationUpgradeVoucher{self.w.station.level}", reserve=reserve):
                     return
             damaged = sorted((r for r in self.w.walls if r.health < (1000 + 500 * (r.level - 1)) * 0.6),
-                             key=lambda r: (r.health, r.id))
+                             key=lambda r: (r.p not in self.front, r.health, r.id))
             if damaged:
                 wall = damaged[0]
                 # Upgrading both repairs and strengthens the exposed section.
                 if wall.level < 3 and self.purchase(actor, f"WallUpgradeVoucher{wall.level}", reserve=reserve):
                     return
                 if self.purchase(actor, "WallFixer", reserve=reserve):
+                    return
+            # Preventive upgrades: once rockets are paid for and the base is safe,
+            # spend spare gold pushing the exposed front walls toward level 3.
+            ready = [r for r in self.w.walls if r.p in self.front and r.level < 3]
+            if self.build_count >= 3 and (self.w.station.level >= 3 or self.w.station.health >= 800) and ready:
+                wall = min(ready, key=lambda r: (r.level, r.health, self.layout.front.index(r.p)))
+                if self.purchase(actor, f"WallUpgradeVoucher{wall.level}", reserve=reserve):
                     return
         if not self.mine(actor):
             self.sell(actor, True)

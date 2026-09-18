@@ -88,6 +88,7 @@ class World:
 class Layout:
     towers: list
     walls: list
+    front: list
     operator: tuple
 
     @classmethod
@@ -100,10 +101,12 @@ class Layout:
             return (sx + 1 - dx, sy - 1 - dy) if left_base else (sx + dx, sy + dy)
 
         towers = [transform(2, -1), transform(1, 1), transform(2, 1)]
+        # Front coordinates are ordered by distance from the corridor centre line.
         front = [(-2, y) for y in (0, -1, 1, -2, 2, -3)]
         caps = [(x, y) for x in (-1, 0, 1) for y in (2, -3)]
         return cls([p for p in towers if world.inside(p)],
                    [transform(*p) for p in front + caps if world.inside(transform(*p))],
+                   [transform(*p) for p in front if world.inside(transform(*p))],
                    transform(2, 0))
 
 
