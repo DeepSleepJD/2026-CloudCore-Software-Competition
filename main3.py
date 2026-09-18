@@ -1,3 +1,4 @@
+"""Platform entry point: python3 /home/docker/CoreGeek/main3.py <port>."""
 import argparse
 import logging
 from agent.server import serve

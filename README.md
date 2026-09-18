@@ -14,12 +14,13 @@ bash run.sh 8080
 Windows 本地启动：
 
 ```powershell
-python main.py 8080
+python main3.py 8080
 ```
 
 监听 `0.0.0.0:<port>`，接受任意路径的 HTTP POST。请求必须为接口文档的 JSON Request；
 响应固定包含 `roleCommandMap`、`prompt`、`executeCmd`。后两项当前为空字符串。
-部署时将 `run.sh`、`main.py`、`agent/` 放在同一目录；运行不依赖本仓库外的 Demo、docs 或 replay。
+部署时将 `run.sh`、`main3.py`、`agent/` 放在同一目录；运行不依赖本仓库外的 Demo、docs 或 replay。
+平台日志显示其实际启动入口为 `/home/docker/CoreGeek/main3.py`，上传后须确保该路径存在。
 
 ## 当前策略
 
