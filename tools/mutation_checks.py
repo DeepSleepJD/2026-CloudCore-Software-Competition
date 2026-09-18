@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 from test_jd_v4 import JDTests
 from test_task_protocol import TaskProtocolTests
+from test_task_quality import QualityFlowTests
 from agent.tasks import TaskRunner
 from agent.strategy import Planner
 from agent.combat import rocket_targets
@@ -57,6 +58,19 @@ def main():
         with patch(target, bad or discard_on_pause):
             result = unittest.TestResult()
             TaskProtocolTests(test).run(result)
+            results[name] = bool(result.failures or result.errors)
+    quality_mutants = [
+        ('remove_answer_shape_check', 'agent.tasks.shape_error', lambda *args: '',
+         'test_format_gate_rejects_wrong_type_but_accepts_partial_fields'),
+        ('ignore_incomplete_query_page', 'agent.tasks.query_observation', lambda *args: '',
+         'test_partial_page_generic_output_does_not_pass_as_complete'),
+        ('allow_endless_identical_command', 'agent.tasks.TaskRunner.repeat_blocked', lambda *args: False,
+         'test_repeated_identical_failure_blocks_third_command_but_not_correction'),
+    ]
+    for name, target, bad, test in quality_mutants:
+        with patch(target, bad):
+            result = unittest.TestResult()
+            QualityFlowTests(test).run(result)
             results[name] = bool(result.failures or result.errors)
     print(json.dumps({"detected": sum(results.values()), "total": len(results), "mutants": results}, indent=2))
     if not all(results.values()):

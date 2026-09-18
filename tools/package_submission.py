@@ -26,13 +26,13 @@ def build(output):
             archive.addfile(item)
         for name, path in sorted(files.items()):
             add(name, path.read_bytes().replace(b"\r\n", b"\n"), 0o755 if name.endswith(".sh") else 0o644)
-        add("BUILD.json", json.dumps({"version": "v6-jd", "source_commit": revision}).encode())
+        add("BUILD.json", json.dumps({"version": "v7-jd", "source_commit": revision}).encode())
         add("pyproject.toml", b'''[build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "zk-agent"
-version = "6.0.0"
+version = "7.0.0"
 requires-python = ">=3.10"
 dependencies = []
 [tool.setuptools]
