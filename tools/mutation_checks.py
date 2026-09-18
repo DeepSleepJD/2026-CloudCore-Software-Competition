@@ -13,6 +13,8 @@ sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 from test_jd_v4 import JDTests
 from test_task_protocol import TaskProtocolTests
 from test_task_quality import QualityFlowTests
+from test_query_recovery import QueryRecoveryTests
+from agent.task_sandbox import _query
 from agent.tasks import TaskRunner
 from agent.strategy import Planner
 from agent.combat import rocket_targets
@@ -71,6 +73,23 @@ def main():
         with patch(target, bad):
             result = unittest.TestResult()
             QualityFlowTests(test).run(result)
+            results[name] = bool(result.failures or result.errors)
+    def discard_partial(plan, evidence):
+        value = _query(plan, evidence)
+        if value.get('field_errors'):
+            raise ValueError('one field failed; discard everything')
+        return value
+
+    recovery_mutants = [
+        ('hide_api_error_body', 'agent.task_sandbox.response_evidence', lambda raw: {},
+         'test_http_status_body_and_authentication_header_survive'),
+        ('discard_valid_fields_after_one_failure', 'agent.task_sandbox._query', discard_partial,
+         'test_one_failed_field_preserves_other_results_and_real_null_sample'),
+    ]
+    for name, target, bad, test in recovery_mutants:
+        with patch(target, bad):
+            result = unittest.TestResult()
+            QueryRecoveryTests(test).run(result)
             results[name] = bool(result.failures or result.errors)
     print(json.dumps({"detected": sum(results.values()), "total": len(results), "mutants": results}, indent=2))
     if not all(results.values()):

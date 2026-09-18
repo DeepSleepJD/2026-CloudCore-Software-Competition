@@ -9,9 +9,34 @@ import re
 import subprocess
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 
 REPORT = '__ZK_TASK_RESULT__='
+
+
+class QueryFailure(ValueError):
+    def __init__(self, message, diagnostics):
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
+def response_evidence(raw):
+    """Keep actual response hints and field names, without dumping entire datasets."""
+    def compact(value, depth=0):
+        if depth > 5:
+            return '<' + type(value).__name__ + '>'
+        if isinstance(value, dict):
+            return {k: compact(v, depth + 1) for k, v in list(value.items())[:16]}
+        if isinstance(value, list):
+            return [compact(v, depth + 1) for v in value[:2]]
+        return value[:500] if isinstance(value, str) else value
+    try:
+        preview = json.dumps(compact(json.loads(raw)), ensure_ascii=False)
+    except (ValueError, UnicodeError):
+        preview = raw.decode('utf-8', errors='replace')
+    return {'response_preview': preview[:3000],
+            'preview_note': 'Bounded excerpt; array samples are not the full dataset.'}
 
 
 def field(value, path):
@@ -117,6 +142,14 @@ def document(plan):
 
 
 def query(plan):
+    evidence = {'stage': 'plan'}
+    try:
+        return _query(plan, evidence)
+    except Exception as exc:
+        raise QueryFailure(str(exc), evidence) from exc
+
+
+def _query(plan, evidence):
     pagination = plan['pagination']
     mode = pagination['mode']
     if mode not in ('offset', 'page', 'cursor', 'none'):
@@ -141,19 +174,36 @@ def query(plan):
         url = plan['url']
         url += ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
         request = urllib.request.Request(url, headers=plan.get('headers', {}))
-        with urllib.request.urlopen(request, timeout=min(2, max(.1, 10 - (time.monotonic() - started)))) as response:
-            if response.status != 200:
-                raise ValueError('HTTP status is not 200')
-            raw = response.read(1024 * 1024 + 1)
+        evidence.clear()
+        evidence.update(stage='request', page=page_no)
+        try:
+            with urllib.request.urlopen(request, timeout=min(2, max(.1, 10 - (time.monotonic() - started)))) as response:
+                evidence['http_status'] = response.status
+                raw = response.read(1024 * 1024 + 1)
+        except urllib.error.HTTPError as exc:
+            evidence['http_status'] = exc.code
+            try:
+                evidence.update(response_evidence(exc.read(16384)))
+                if exc.headers.get('WWW-Authenticate'):
+                    evidence['authentication_hint'] = exc.headers['WWW-Authenticate'][:500]
+            finally:
+                exc.close()
+            raise ValueError('HTTP status ' + str(exc.code)) from exc
+        evidence.update(response_evidence(raw))
+        if evidence['http_status'] != 200:
+            raise ValueError('HTTP status is not 200')
         if len(raw) > 1024 * 1024:
             raise ValueError('response too large; use smaller pages')
+        evidence['stage'] = 'decode'
         data = json.loads(raw)
+        evidence['stage'] = 'business_status'
         success = plan.get('success')
         if success and field(data, success['path']) != success['equals']:
             raise ValueError('business success condition failed')
         if isinstance(data, dict) and (data.get('error') or data.get('success') is False or
                                       data.get('code') in (400, 401, 403, 404, 429, 500, '401', '403')):
             raise ValueError('API returned an error envelope')
+        evidence['stage'] = 'records'
         batch = field(data, plan['records_path'])
         if not isinstance(batch, list) or any(not isinstance(r, dict) for r in batch):
             raise ValueError('records must be an array of objects')
@@ -161,6 +211,7 @@ def query(plan):
         if batch and signature in seen_pages:
             raise ValueError('repeated page; pagination did not progress')
         seen_pages.add(signature)
+        evidence['stage'] = 'pagination'
         if total_path:
             current = field(data, total_path)
             if type(current) is not int or current < 0 or (total is not None and total != current):
@@ -190,8 +241,24 @@ def query(plan):
         if complete:
             if (total is not None and len(records) != total) or more is True or (next_path and not end_cursor):
                 raise ValueError('contradictory pagination metadata')
-            return {'answer': aggregate(records, plan['aggregations']), 'complete': True,
-                    'records': len(records), 'pages': page_no}
+            # Only a proven complete dataset may yield full or partial statistics.
+            evidence['stage'] = 'aggregation'
+            rules = plan['aggregations']
+            if not isinstance(rules, dict) or not 1 <= len(rules) <= 32:
+                raise ValueError('aggregations must contain 1..32 answer fields')
+            answer, errors = {}, {}
+            for name, rule in rules.items():
+                try:
+                    value = aggregate(records, {name: rule})[name]
+                    json.dumps(value, allow_nan=False)
+                    answer[name] = value
+                except (ValueError, TypeError, KeyError, AttributeError, OverflowError) as exc:
+                    errors[name] = type(exc).__name__ + ': ' + str(exc)[:500]
+            result = {'answer': answer, 'complete': True, 'records': len(records), 'pages': page_no,
+                      'partial': bool(errors), 'field_errors': errors}
+            if errors:
+                result['diagnostics'] = dict(evidence)
+            return result
         if len(records) == previous_count:
             raise ValueError('pagination made no progress before declared end')
         if mode == 'cursor':
@@ -232,5 +299,7 @@ def run(payload):
         report['ok'] = True
     except Exception as exc:
         report.update(error=type(exc).__name__ + ': ' + str(exc)[:2000], complete=False)
+        if isinstance(exc, QueryFailure):
+            report['diagnostics'] = exc.diagnostics
         report.pop('answer', None)
     print(REPORT + json.dumps(report, ensure_ascii=True))

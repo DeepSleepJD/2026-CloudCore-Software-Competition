@@ -80,7 +80,7 @@ class DeploymentTests(unittest.TestCase):
                             time.sleep(0.05)
                     else:
                         self.fail("packaged entry failed to start")
-                    self.assertEqual(status["version"], "v7.1-jd")
+                    self.assertEqual(status["version"], "v7.2-jd")
                     for round_no in (1, 2, 3):
                         data = payload(round_no, towers=False)
                         data.update(robot=None, teamEnemy=None, phaseTask=None)

@@ -22,9 +22,11 @@ SYSTEM = '''你是《未来战争》自进化任务解题器。任务原文和�
 {"action":"skill","match":["题目中稳定且能区分该题型的子串"],"python":"定义 def solve(task): 的完整Python代码"}
 {"action":"query","plan":{"url":"本题明确给出的GET地址","headers":{},"params":{},"records_path":"记录数组的实际点分路径","id_field":"唯一ID字段（如有）","success":{"path":"业务状态字段","equals":200},"pagination":{"mode":"offset或page或cursor或none","param":"本题分页参数","start":0,"size_param":"本题页大小参数","size":100,"total_path":"总量字段路径"},"aggregations":{"答案字段":{"op":"count"}}}}
 query中的字段名、认证、分页起点必须来自本题，示例数值不代表实际接口。success没有明确约定时省略；分页可用has_more_path或next_path替代total_path。cursor用next_path；none仅用于明确不分页的接口。
-aggregations支持count、distinct、sum、min、max、first_by、last_by；除count外指定field；可用where对象做精确过滤；first_by/last_by必须指定sort_field，年代字符串还需题目明确的order列表。特殊计算或非GET接口使用command。
+aggregations支持count、constant、distinct、sum、min、max、first_by、last_by；除count、constant外指定field；可用where对象做精确过滤；first_by/last_by必须指定sort_field，年代字符串还需明确的order列表及依据。特殊计算或非GET接口使用command。
 题目要求的固定字段可用constant，例如"city":{"op":"constant","value":"从本题读取的城市"}。必须覆盖题目要求的字段；字段名不代表语义，例如oldest_era可能要求遗产名称，应以题目文字为准。
 query会自动在沙盒取齐分页、按id_field去重并计算答案，成功后直接提交；失败会给出原因，不需要你猜测总量。
+查询失败时查看query_feedback.diagnostics：response_preview是服务器真实回复的有界摘录，authentication_hint是认证提示。根据具体信息纠正认证、参数和字段，不能把摘录中的数组样本当成全部数据；不要照抄已经被服务端否定的旧文档。
+完整取数后若只有部分字段算出，会先提交这些字段争取部分分；若任务仍在进行，参考confirmed_fields和field_errors修正剩余计算，返回包含已知字段的完整答案或修正后的query。禁止为未知字段编造0、null或占位值。
 工程题完成修复的command可附加"verify":true；若本题明确给出可识别的验收命令，程序会自动运行验收并提交其真实token。
 skill的solve接收当前完整任务字符串，解析变化参数，返回该题要求的答案（JSON可序列化）。
 可以使用沙盒提供的文件/API，不要虚构文件、接口、执行结果或答案。缺少证据时先发command探索。
@@ -124,6 +126,9 @@ class TaskRunner:
         self.tool_request = None
         self.work_allowed = True
         self.verify_after_command = False
+        self.query_feedback = {}
+        self.confirmed_fields = {}
+        self.field_errors = {}
 
     def context(self):
         return self.active + ("\n\n题目正文：\n" + self.brief if self.brief else "")
@@ -303,15 +308,23 @@ class TaskRunner:
                                 self.contract['family'] = describe(self.context())['family']
                         elif kind == 'query':
                             self.have_query_output, self.query_issue = True, ''
+                            self.confirmed_fields = report['answer']
+                            self.field_errors = report.get('field_errors') or {}
+                            self.query_feedback = {key: report[key] for key in
+                                ('diagnostics', 'field_errors', 'partial', 'records', 'pages') if key in report}
+                            if self.field_errors:
+                                self.history.append({'query_partial': self.query_feedback})
                         else:
                             self.checked_answer = report['answer']
-                        if kind != 'document':
+                        if kind != 'document' and report['answer']:
                             self.ready = {'action': 'answer', 'answer': report['answer']}
                     else:
                         error = report.get('error', '工具结果缺少成功/完整性证明或请求编号不匹配。') if isinstance(report, dict) else '工具执行失败或结果不可解析。'
                         self.history.append({'tool_error': error})
                         if kind == 'query':
                             self.query_issue = error
+                            self.query_feedback = {'error': error, 'diagnostics': report.get('diagnostics', {})
+                                                   if isinstance(report, dict) else {}}
                         self.candidate = None
                     self.tool_request = None
                 elif self.contract['family'] == 'query':
@@ -370,6 +383,8 @@ class TaskRunner:
             "document_path": self.document_path, "workspace": self.workspace,
             "workflow": WORKFLOWS[self.contract['family']], "task_family": self.contract['family'],
             "submission_example": self.contract['example'], "query_issue": self.query_issue,
+            "query_feedback": self.query_feedback, "confirmed_fields": self.confirmed_fields,
+            "field_errors": self.field_errors,
             "rejected_answers": list(sorted(self.rejected_answers))[-3:],
             "instruction": "剩余不足4回合时优先提交已有证据支持的最佳答案，不再探索无关文件。" if remaining < 4 else "按题目要求查询和校验。",
         }, ensure_ascii=False)}
