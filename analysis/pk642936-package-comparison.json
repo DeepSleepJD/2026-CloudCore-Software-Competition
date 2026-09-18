@@ -1,0 +1,42 @@
+{
+  "scope": "Synthetic reconstruction using owned deployment packages and supplied task text; not the original match command trace.",
+  "packages": [
+    {
+      "archive": "CoreGeek-v7.tar.gz",
+      "build": {
+        "version": "v7-jd",
+        "source_commit": "bfd233262378dea25fd62ca1efbb1a646d37e988"
+      },
+      "reconstruction": {
+        "submission_schema_recognized": false,
+        "scalar_15_submitted": true,
+        "scalar_15_wire": "15",
+        "required_constant_field": {
+          "error": "unsupported aggregation: constant"
+        },
+        "separate_origin_route_accepted": false,
+        "nested_document_read": false,
+        "sibling_document_available": false
+      }
+    },
+    {
+      "archive": "CoreGeek-v7.1.tar.gz",
+      "build": {
+        "version": "v7.1-jd",
+        "source_commit": "48aa14259c2cb10ec967be472c0fe24d336045b4"
+      },
+      "reconstruction": {
+        "submission_schema_recognized": true,
+        "scalar_15_submitted": false,
+        "scalar_15_wire": null,
+        "required_constant_field": {
+          "city": "test-city",
+          "total_count": 1
+        },
+        "separate_origin_route_accepted": true,
+        "nested_document_read": true,
+        "sibling_document_available": true
+      }
+    }
+  ]
+}
