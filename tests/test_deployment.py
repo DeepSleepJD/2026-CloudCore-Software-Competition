@@ -11,6 +11,8 @@ import unittest
 from urllib.request import Request, urlopen
 
 from test_agent import payload
+from test_jd_v4 import scene
+from test_task_protocol import SKILL, run_fixture_solver
 from zk_agent.baseline import BaselineAgent
 from zk_agent.config import Config
 from tools.package_submission import build
@@ -76,7 +78,7 @@ class DeploymentTests(unittest.TestCase):
                             time.sleep(0.05)
                     else:
                         self.fail("packaged entry failed to start")
-                    self.assertEqual(status["version"], "v5-jd")
+                    self.assertEqual(status["version"], "v6-jd")
                     for round_no in (1, 2, 3):
                         data = payload(round_no, towers=False)
                         data.update(robot=None, teamEnemy=None, phaseTask=None)
@@ -85,9 +87,31 @@ class DeploymentTests(unittest.TestCase):
                         request = Request(url, json.dumps(data).encode(), {"Content-Type": "application/json"})
                         with urlopen(request, timeout=5) as response:
                             self.assertTrue(json.load(response)["roleCommandMap"])
+                    # Exercise the packaged task path over HTTP, including the actual
+                    # generated wrapper executing our fixed, reviewed fixture solver.
+                    task = scene(4)
+                    task['teamOur']['roles'][3]['pos'] = {'x':24, 'y':14}
+                    task['teamOur']['playerTasks'] = [{'taskType':'自进化类1', 'isValid':True, 'timeoutRounds':30}]
+
+                    def post_task(**changes):
+                        task.update(llmResp='', lastCmdResult='')
+                        task.update(changes)
+                        request = Request(url, json.dumps(task).encode(), {"Content-Type": "application/json"})
+                        with urlopen(request, timeout=5) as response:
+                            answer = json.load(response)
+                        task['roundNo'] += 1
+                        return answer
+
+                    self.assertEqual(post_task()['roleCommandMap']['20011']['action'], 'acceptTask')
+                    self.assertEqual(post_task(phaseTask='请阅读task_http.md，获取任务信息')['executeCmd'], 'cat -- task_http.md')
+                    self.assertTrue(post_task(lastCmdResult='[exitCode:0]\n城市历史建筑统计：count=23')['prompt'])
+                    cmd = post_task(llmResp=json.dumps(SKILL))['executeCmd']
+                    answer = post_task(lastCmdResult=run_fixture_solver(cmd))['roleCommandMap']['20011']
+                    self.assertEqual(answer['action'], 'submitAnswer')
+                    self.assertEqual(json.loads(answer['taskAnswer']), {'count':23})
                     with urlopen(url, timeout=5) as response:
                         status = json.load(response)
-                    self.assertEqual(status["requests"], 3)
+                    self.assertEqual(status["requests"], 8)
                     self.assertIsNone(status["last_error"])
                 finally:
                     process.terminate()

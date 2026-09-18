@@ -10,7 +10,7 @@ class TaskWorld:
         self.planner = planner
         self.data = planner.w.raw
         self.round = planner.w.round
-        self.pioneer = {"id": planner.w.pioneer.id} if planner.w.pioneer else None
+        self.pioneer = {"id": planner.w.pioneer.id, "pos": planner.w.pioneer.p} if planner.w.pioneer else None
 
     def put(self, actor, value):
         return self.planner.emit(self.planner.w.pioneer, value)
@@ -19,7 +19,7 @@ class TaskWorld:
 class Missions:
     def __init__(self, identity, state_dir):
         self.news = News()
-        self.runner = TaskRunner(SimpleNamespace(state_dir=state_dir, task_llm_budget=12, task_cmd_budget=16), identity)
+        self.runner = TaskRunner(SimpleNamespace(state_dir=state_dir), identity)
         self.abandon = False
 
     def leave(self, planner):
@@ -38,8 +38,21 @@ class Missions:
             self.abandon = False
             return False
         if not w.pioneer:
+            self.runner.step(TaskWorld(planner))
             return False
-        if w.pioneer.p in planner.danger:
+        danger = w.pioneer.p in planner.danger
+        emergency = planner.emergency() or self.abandon
+        # A returned answer can be submitted within the broad route-avoidance area.
+        # A robot within two cells can reach/attack the pioneer this turn: save the
+        # response first, then prioritize healing or escape instead of standing still.
+        imminent = any(distance(w.pioneer.p, r.p) <= max(2, r.reach + 1) for r in w.robots)
+        danger = danger or imminent
+        result = self.runner.step(TaskWorld(planner), allow_work=not (danger or emergency),
+                                  allow_submit=not imminent and not self.abandon)
+        if result.get("answered"):
+            planner.used.add(w.pioneer.id)
+            return True
+        if danger:
             # Do not hold a task lock while the pioneer is exposed to a wave.
             if "Medicine" in w.pioneer.bag and w.pioneer.health < 160:
                 planner.emit(w.pioneer, command("use", name="Medicine"))
@@ -48,12 +61,11 @@ class Missions:
                 planner.retreat(w.pioneer)
             planner.used.add(w.pioneer.id)
             return True
-        if planner.emergency() or self.abandon:
+        if emergency:
             self.abandon = True
             self.leave(planner)
             planner.used.add(w.pioneer.id)
             return True
-        result = self.runner.step(TaskWorld(planner))
         if result.get("exhausted"):
             self.abandon = True
             self.leave(planner)
@@ -128,6 +140,6 @@ class Missions:
         for _, _, target, timeout in sorted(choices):
             if planner.approach(actor, target, command("acceptTask")):
                 if planner.commands.get(str(actor.id), {}).get("action") == "acceptTask":
-                    self.runner.config.timeout_rounds = timeout
+                    self.runner.accepted(w.round, timeout)
                 return True
         return False
