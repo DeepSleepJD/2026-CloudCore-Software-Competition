@@ -47,7 +47,12 @@ class DeploymentTests(unittest.TestCase):
                     self.assertIsNotNone(pack.getmember("CoreGeek/" + name))
                 self.assertEqual(pack.getmember("CoreGeek/run.sh").mode, 0o755)
                 self.assertNotIn(b"\r", pack.extractfile("CoreGeek/run.sh").read())
-                pack.extractall(root, filter="data")
+                # Older Windows Python 3.10 builds predate tarfile filters.
+                # This archive was generated above from our fixed file allowlist.
+                if hasattr(tarfile, "data_filter"):
+                    pack.extractall(root, filter="data")
+                else:
+                    pack.extractall(root)
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
