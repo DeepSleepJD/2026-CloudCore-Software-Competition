@@ -1,0 +1,220 @@
+{
+  "description": "Sanitized documents and Beijing responses from the supplied v7.3 match; no judge credentials or tokens.",
+  "tasks": [
+    {
+      "documents": [
+        {
+          "name": "task_1_alpha.md",
+          "text": "# 自进化任务 B-1：修复应用 alpha 部署\n\n## 任务背景\n\n你是人类抵抗军的运维工程师。机器人大战爆发后，前线指挥系统的部署问题直接影响作战。应用 `alpha` 的部署环境已由组织方准备在本任务文件所在目录的 `ws_1/`（`${TASK_ROOT}/ws_1/`）中，但项目文件存在若干错误。请进入该目录，根据 `spec.md` 的描述修复所有问题，使系统达到正确状态。\n\n## 任务要求\n\n1. 进入工作区：`cd ${TASK_ROOT}/ws_1/`\n2. 阅读 `spec.md`，了解修复后的正确状态\n3. 修复文件系统中的所有问题\n4. 运行 `./check` 验证修复结果\n5. 当 `./check` 全部通过并输出 `TOKEN: xxx` 时，任务完成\n\n## 提交规则\n\n- 任务完成以 `./check` 输出 `TOKEN: xxx` 为准，通过`submitAnswer`来提交答案，形式：\n\n  ```\n  {\"token\": \"xxx\"}\n  ```\n\n- 你可以反复运行 `./check` 查看进度，直到全部通过\n\n## 提示\n\n- 直接看 `./check` 的输出了解哪些项还没通过\n- 错误类型包括：缺失目录、配置文件内容错误、文件权限错误\n- 建议将修复过程整理成可复用的 SOP，后续可能还有类似任务\n"
+        }
+      ],
+      "accepted_round": 8,
+      "timeout": 15,
+      "spec": "# 应用 alpha 部署规范\r\n\r\n## 目录要求\r\n- logs/alpha/ 必须存在，权限为 755\r\n\r\n## 配置文件 config/alpha.conf\r\n- 第 3 行：`port 8080`\r\n- 第 6 行：`name alpha-app`\r\n\r\n## 脚本要求\r\n- bin/start.sh 必须存在且可执行（权限 755）\r\n"
+    },
+    {
+      "documents": [
+        {
+          "name": "task_1_beijing.md",
+          "text": "# 自进化任务 A-1：查询北京文化遗产\n\n## 任务背景\n\n你是人类抵抗军文化遗产保护中心的数据分析员。2035 年，人类与 AI 机器人之间爆发了不可调和的机器人大战，战火中的文明遗产岌岌可危。保护中心建立了国家文化遗产数字档案查询系统 (NCHDA)，全力抢救战前文明的数据。你需要通过 API 拉取北京市的文化遗产数据，完成一份统计报告。\n\n系统提供了一个 API 服务（运行在 `http://localhost:8899`），API 文档在 `API_DOCS.md` 中。注意：由于该系统经过了长期迭代，文档中的部分字段内容已经发生变化，描述不再准确（其它内容可以认为是准确的）。\n\n## 任务要求\n\n从 API 查询北京市的**全部**文化遗产记录，然后通过`submitAnswer`接口提交以下统计信息：\n\n```json\n{\n  \"city\": \"北京\",\n  \"total_count\": <总记录条数>,\n  \"world_heritage_count\": <保护级别为\"世界遗产\"的数量>,\n  \"types\": [\"<所有不重复的遗产类型，顺序不限>\"],\n  \"oldest_era\": \"<年代最早的遗产名称>\"\n}\n```\n\n## 提交形式\n\n- 以字符串的形式提交给submitAnswer，例如：\n\n```json\n{\"city\":\"北京\",\"total_count\":0,\"world_heritage_count\":0,\"types\":[\"a\",\"b\"],\"oldest_era\":\"c\"}\n```\n\n- 提交答案为数字/字符串敏感型，不能将数字0写成\"0\"，否则算错\n\n## 提示\n\n- API 服务已由组织方在后台启动，你只需向 `http://localhost:8899` 发送请求\n- 查阅 `API_DOCS.md` 了解接口用法（注意：文档可能有过时内容，以实际 API 返回为准）\n"
+        },
+        {
+          "name": "API_DOCS.md",
+          "text": "# 国家文化遗产数字档案查询系统 — API 参考文档\n\n**版本**: v1.0  \n**基础URL**: `http://localhost:8899`  \n**协议**: HTTP/1.1, 仅支持 GET 请求  \n**数据格式**: JSON (UTF-8 编码)\n\n---\n\n## 1. 认证方式\n\n所有接口均需认证。请在请求头中携带 API Key：\n\n```\nX-API-Key: <your-api-key>\n```\n\n**API Key**:\n\n| Key | 权限 |\n|-----|------|\n| `fixture-credential` | 全量查询权限 |\n\n---\n\n常见错误码：\n\n| HTTP 状态码 | 说明              |\n|-------------|-------------------|\n| 400         | 请求参数错误       |\n| 401         | 认证失败           |\n| 404         | 未找到匹配记录     |\n| 500         | 服务器内部错误     |\n\n---\n\n## 2. 使用示例\n\n```bash\n# 查询北京的文化遗产，默认显示前10条\ncurl -H \"X-API-Key: fixture-credential\" \"http://localhost:8899/api/v1/heritage/search?city=北京\"\n```\n\n```shell\n# 查询所有北京的文化遗产\n# 指令内容已被损坏\n```\n\n### 2.1 预期输出（北京）\n\n如果一切正确，查询北京应当返回 15 条文化遗产记录。包括故宫、天坛、颐和园等。\n\n---\n\n## 4. 注意事项\n\n1. **字符编码**: 所有请求和响应均使用 UTF-8 编码，城市名支持中文直传。\n2. **分页建议**: 建议从第1页开始，逐步获取所有数据，避免遗漏。\n3. **API Key 安全**: 请妥善保管 API Key，不要在日志中明文输出。\n4. **超时设置**: 建议设置 30 秒超时，避免长时间等待。\n5. **限流**: 本接口无调用频率限制，但请合理使用。\n"
+        }
+      ],
+      "accepted_round": 24,
+      "timeout": 15
+    },
+    {
+      "documents": [
+        {
+          "name": "task_2_nanjing.md",
+          "text": "# 自进化任务 A-2：查询南京文化遗产\n\n## 任务背景\n\n继续你为抵抗军进行的文化遗产抢救普查工作。接下来需要拉取**南京市**的文化遗产数据。\n\n（API 服务与文档与上一题完全相同，仍然运行在 `http://localhost:8899`）\n\n## 任务要求\n\n从 API 查询南京市的**全部**文化遗产记录，然后提交以下统计信息：\n\n```json\n{\n  \"city\": \"南京\",\n  \"total_count\": <总记录条数>,\n  \"world_heritage_count\": <保护级别为\"世界遗产\"的数量>,\n  \"types\": [\"<所有不重复的遗产类型，顺序不限>\"],\n  \"oldest_era\": \"<年代最早的遗产名称>\"\n}\n```\n\n## 提交形式\n\n- 以字符串的形式提交给submitAnswer，例如：\n\n```json\n{\"city\":\"南京\",\"total_count\":0,\"world_heritage_count\":0,\"types\":[\"a\",\"b\"],\"oldest_era\":\"c\"}\n```\n\n- 提交答案为数字/字符串敏感型，不能将数字0写成\"0\"，否则算错\n\n## 提示\n\n- **API 与题1 完全相同（同一服务、同一认证、同一参数格式），只是城市名从\"北京\"换成\"南京\"**\n"
+        }
+      ],
+      "accepted_round": 118,
+      "timeout": 10
+    },
+    {
+      "documents": [
+        {
+          "name": "task_2_beta.md",
+          "text": "# 自进化任务 B-2：修复应用 beta 部署\n\n## 任务背景\n\n继续你的运维工作，保障抵抗军前线系统的稳定。应用 `beta` 的部署环境在本任务文件所在目录的 `ws_2/`（`${TASK_ROOT}/ws_2/`）中，存在类似的部署错误。请进入该目录，修复所有问题。\n\n## 任务要求\n\n1. 进入工作区：`cd ${TASK_ROOT}/ws_2/`\n2. 阅读 `spec.md`\n3. 修复所有问题\n4. 运行 `./check` 直到全部通过\n5. 当 `./check` 全部通过并输出 `TOKEN: xxx` 时，任务完成\n\n## 提交规则\n\n- 任务完成以 `./check` 输出 `TOKEN: xxx` 为准，通过`submitAnswer`来提交答案，形式：\n\n  ```\n  {\"token\": \"xxx\"}\n  ```\n\n- 你可以反复运行 `./check` 查看进度，直到全部通过\n\n## 提示\n\n- 如果你在上一个任务中已经整理了 SOP，现在可以直接使用\n"
+        }
+      ],
+      "accepted_round": 132,
+      "timeout": 10,
+      "spec": "# 应用 beta 部署规范\r\n\r\n## 目录要求\r\n- logs/beta/ 必须存在，权限为 755\r\n\r\n## 配置文件 config/beta.conf\r\n- 第 3 行：`port 9090`\r\n- 第 6 行：`name beta-svc`\r\n\r\n## 脚本要求\r\n- bin/start.sh 必须存在且可执行（权限 755）\r\n"
+    },
+    {
+      "documents": [
+        {
+          "name": "task_3_chengdu.md",
+          "text": "# 自进化任务 A-3：查询成都文化遗产\n\n## 任务背景\n\n最后一站，请拉取**成都市**的文化遗产数据，完成抵抗军文化遗产抢救普查。\n\n（API 服务与文档与前面完全相同，仍然运行在 `http://localhost:8899`）\n\n## 任务要求\n\n从 API 查询成都市的**全部**文化遗产记录，然后提交以下统计信息：\n\n```json\n{\n  \"city\": \"成都\",\n  \"total_count\": <总记录条数>,\n  \"world_heritage_count\": <保护级别为\"世界遗产\"的数量>,\n  \"types\": [\"<所有不重复的遗产类型，顺序不限>\"],\n  \"oldest_era\": \"<年代最早的遗产名称>\"\n}\n```\n\n## 提交形式\n\n- 以字符串的形式提交给submitAnswer，例如：\n\n```json\n{\"city\":\"成都\",\"total_count\":0,\"world_heritage_count\":0,\"types\":[\"a\",\"b\"],\"oldest_era\":\"c\"}\n```\n\n- 提交答案为数字/字符串敏感型，不能将数字0写成\"0\"，否则算错\n\n## 提示\n\n- **API 与前面完全相同，只是城市名换成\"成都\"**\n"
+        }
+      ],
+      "accepted_round": 163,
+      "timeout": 10
+    },
+    {
+      "documents": [
+        {
+          "name": "task_3_gamma.md",
+          "text": "# 自进化任务 B-3：修复应用 gamma 部署\n\n## 任务背景\n\n最后一站，请完成抵抗军前线系统最后的修复任务。应用 `gamma` 的部署环境在本任务文件所在目录的 `ws_3/`（`${TASK_ROOT}/ws_3/`）中，请完成修复。\n\n## 任务要求\n\n1. 进入工作区：`cd ${TASK_ROOT}/ws_3/`\n2. 阅读 `spec.md`\n3. 修复所有问题\n4. 运行 `./check` 直到全部通过\n5. 当 `./check` 全部通过并输出 `TOKEN: xxx` 时，任务完成\n\n## 提交规则\n\n- 任务完成以 `./check` 输出 `TOKEN: xxx` 为准，通过`submitAnswer`来提交答案，形式：\n\n  ```\n  {\"token\": \"xxx\"}\n  ```\n\n- 你可以反复运行 `./check` 查看进度，直到全部通过\n\n## 提示\n\n- 如果你之前已经编写了可复用的脚本，现在可以直接使用\n"
+        }
+      ],
+      "accepted_round": 247,
+      "timeout": 10,
+      "spec": "# 应用 gamma 部署规范\r\n\r\n## 目录要求\r\n- logs/gamma/ 必须存在，权限为 755\r\n\r\n## 配置文件 config/gamma.conf\r\n- 第 3 行：`port 3000`\r\n- 第 6 行：`name gamma-daemon`\r\n\r\n## 脚本要求\r\n- bin/start.sh 必须存在且可执行（权限 755）\r\n"
+    }
+  ],
+  "beijing_pages": [
+    {
+      "code": 200,
+      "data": {
+        "records": [
+          {
+            "id": "BJ001",
+            "name": "故宫",
+            "type": "建筑",
+            "era": "明清",
+            "protected_level": "世界遗产"
+          },
+          {
+            "id": "BJ002",
+            "name": "天坛",
+            "type": "建筑",
+            "era": "明",
+            "protected_level": "世界遗产"
+          },
+          {
+            "id": "BJ003",
+            "name": "颐和园",
+            "type": "园林",
+            "era": "清",
+            "protected_level": "世界遗产"
+          },
+          {
+            "id": "BJ004",
+            "name": "明十三陵",
+            "type": "陵墓",
+            "era": "明",
+            "protected_level": "世界遗产"
+          },
+          {
+            "id": "BJ005",
+            "name": "长城(北京段)",
+            "type": "军事防御",
+            "era": "明",
+            "protected_level": "世界遗产"
+          },
+          {
+            "id": "BJ006",
+            "name": "周口店遗址",
+            "type": "遗址",
+            "era": "旧石器时代",
+            "protected_level": "世界遗产"
+          },
+          {
+            "id": "BJ007",
+            "name": "雍和宫",
+            "type": "宗教建筑",
+            "era": "清",
+            "protected_level": "全国重点"
+          },
+          {
+            "id": "BJ008",
+            "name": "恭王府",
+            "type": "建筑",
+            "era": "清",
+            "protected_level": "全国重点"
+          },
+          {
+            "id": "BJ009",
+            "name": "北海公园",
+            "type": "园林",
+            "era": "辽金元明清",
+            "protected_level": "全国重点"
+          },
+          {
+            "id": "BJ010",
+            "name": "国子监",
+            "type": "教育建筑",
+            "era": "元明清",
+            "protected_level": "全国重点"
+          }
+        ],
+        "pagination": {
+          "total_count": 15,
+          "offset": 0,
+          "limit": 10
+        }
+      }
+    },
+    {
+      "code": 200,
+      "data": {
+        "records": [
+          {
+            "id": "BJ011",
+            "name": "潭柘寺",
+            "type": "宗教建筑",
+            "era": "晋",
+            "protected_level": "全国重点"
+          },
+          {
+            "id": "BJ012",
+            "name": "卢沟桥",
+            "type": "桥梁",
+            "era": "金",
+            "protected_level": "全国重点"
+          },
+          {
+            "id": "BJ013",
+            "name": "正阳门",
+            "type": "城门",
+            "era": "明",
+            "protected_level": "全国重点"
+          },
+          {
+            "id": "BJ014",
+            "name": "鼓楼",
+            "type": "建筑",
+            "era": "元",
+            "protected_level": "全国重点"
+          },
+          {
+            "id": "BJ015",
+            "name": "圆明园遗址",
+            "type": "遗址",
+            "era": "清",
+            "protected_level": "全国重点"
+          }
+        ],
+        "pagination": {
+          "total_count": 15,
+          "offset": 10,
+          "limit": 10
+        }
+      }
+    }
+  ],
+  "beijing_answer": {
+    "city": "北京",
+    "total_count": 15,
+    "world_heritage_count": 6,
+    "types": [
+      "建筑",
+      "园林",
+      "陵墓",
+      "军事防御",
+      "遗址",
+      "宗教建筑",
+      "教育建筑",
+      "桥梁",
+      "城门"
+    ],
+    "oldest_era": "周口店遗址"
+  }
+}

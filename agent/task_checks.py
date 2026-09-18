@@ -18,6 +18,11 @@ def grounded_url(url, text):
         return True
     try:
         target = urlsplit(url)
+        if target.scheme in ('http', 'https') and not target.fragment and not target.username:
+            for value in observed:
+                parsed = urlsplit(value)
+                if (parsed.scheme, parsed.netloc, parsed.path) == (target.scheme, target.netloc, target.path):
+                    return True
         same_origin = any((urlsplit(v).scheme, urlsplit(v).netloc) == (target.scheme, target.netloc)
                           for v in observed)
         route = re.search(r'(?<![\w/.-])' + re.escape(target.path) + r'(?![\w/.-])', text)
@@ -82,7 +87,7 @@ def describe(text, document_path=None):
         unique = {tuple(a) for a in candidates}
         if len(unique) == 1 and len(directories) <= 1 and isinstance(example, dict) and set(example) == {'token'} and 'TOKEN' in text:
             cwd = next(iter(directories), None)
-            if document_path and (cwd is None or not posixpath.isabs(cwd)):
+            if document_path and (cwd is None or not (posixpath.isabs(cwd) or re.match(r'^[A-Za-z]:/', cwd))):
                 cwd = posixpath.normpath(posixpath.join(posixpath.dirname(document_path), cwd or '.'))
             checker = {'argv': list(next(iter(unique))), 'cwd': cwd}
     return {'family': family, 'example': example, 'checker': checker}

@@ -60,7 +60,7 @@ class TaskTrace:
         try:
             self.sequence += 1
             clipped = []
-            entry = {'schema': 1, 'agent_version': 'v7.3-jd', 'run_id': self.run_id, 'task_id': self.task_id,
+            entry = {'schema': 1, 'agent_version': 'v7.4-jd', 'run_id': self.run_id, 'task_id': self.task_id,
                      'event_id': self.run_id + ':' + str(self.sequence), 'event': event,
                      'round': round_no, 'time_ns': time.time_ns(),
                      **self._bounded(data, '', clipped), 'clipped': clipped}

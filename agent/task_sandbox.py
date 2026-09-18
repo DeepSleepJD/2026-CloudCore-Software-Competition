@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import shlex
 import time
 import urllib.parse
 import urllib.error
@@ -131,8 +132,25 @@ def document(plan):
     documents = [read(target)]
     # Follow only references in the primary document; do not recursively explore.
     referenced = re.findall(r'(?<![\w./-])([\w./-]+\.md)(?![\w])', documents[0]['text'])
-    for name in dict.fromkeys(referenced):
-        path = (target.parent / name).resolve()
+    candidates = [(target.parent / name).resolve() for name in dict.fromkeys(referenced)]
+    text = documents[0]['text']
+    # Referenced Markdown files may be relative to an explicit workspace.
+    if referenced:
+        for directory in re.findall(r'`cd\s+([^`\n]+)`', text):
+            parts = shlex.split(directory.strip())
+            if len(parts) == 1:
+                for name in referenced:
+                    candidates.append((target.parent / parts[0] / name).resolve())
+    # Bounded sibling discovery for follow-up tasks that omit a document filename.
+    # Classify by contents, not a hard-coded API documentation filename.
+    if re.search(r'https?://', text) and re.search(r'API|接口', text):
+        for sibling in sorted(target.parent.glob('*.md'))[:12]:
+            if sibling == target or sibling in candidates:
+                continue
+            preview = read(sibling)['text']
+            if re.search(r'API|接口', preview) and re.search(r'curl\b|GET\s+/|POST\s+/|认证|authentication', preview, re.I):
+                candidates.append(sibling)
+    for path in dict.fromkeys(candidates):
         if path == target or not path.is_file():
             continue
         documents.append(read(path))
@@ -275,7 +293,18 @@ def _query(plan, evidence):
 
 def check(plan):
     # The host constructs this from an explicit command in the current task.
-    result = subprocess.run(plan['argv'], cwd=plan.get('cwd'), capture_output=True, timeout=8)
+    argv = list(plan['argv'])
+    adapter = None
+    if len(argv) == 1 and argv[0] in ('./check', './verify', './check.sh', './verify.sh'):
+        path = Path(plan.get('cwd') or '.') / argv[0]
+        raw = path.read_bytes()
+        if b'\r\n' in raw and raw.splitlines()[0] in (b'#!/bin/sh', b'#!/bin/bash'):
+            # Execute the same checker with normalized transport line endings in memory.
+            # Do not rewrite, bypass or extract a token from the checker's source.
+            interpreter = raw.splitlines()[0][2:].decode()
+            argv = [interpreter, '-c', raw.replace(b'\r\n', b'\n').decode(), str(path.resolve())]
+            adapter = 'crlf_in_memory'
+    result = subprocess.run(argv, cwd=plan.get('cwd'), capture_output=True, timeout=min(8, plan.get('timeout', 8)))
     if result.returncode:
         raise ValueError('checker failed: ' + result.stderr.decode(errors='replace')[-1500:] + result.stdout.decode(errors='replace')[-1500:])
     output = result.stdout.decode(errors='replace')
@@ -285,13 +314,25 @@ def check(plan):
     tokens = set(re.findall(r'(?m)^\s*TOKEN\s*[:：=]\s*(\S+)\s*$', output))
     if len(tokens) != 1:
         raise ValueError('checker did not return exactly one TOKEN; inspect actual output format')
-    return {'answer': {'token': tokens.pop()}, 'complete': True}
+    return {'answer': {'token': tokens.pop()}, 'complete': True, 'checker_adapter': adapter}
+
+
+def command_check(plan):
+    """Run a model-planned repair, then the current task's independent verifier."""
+    result = subprocess.run(plan['command'], shell=True, cwd=plan.get('cwd') or None, capture_output=True, timeout=6)
+    if result.returncode:
+        raise ValueError('repair command failed: ' + result.stderr.decode(errors='replace')[-1500:]
+                         + result.stdout.decode(errors='replace')[-1500:])
+    checked = check({**plan['checker'], 'timeout': 6})
+    checked['command_output'] = result.stdout.decode(errors='replace')[-1500:]
+    return checked
 
 
 def run(payload):
     report = {'request': payload['request'], 'kind': payload['kind'], 'ok': False}
     try:
-        report.update({'query': query, 'check': check, 'document': document}[payload['kind']](payload['plan']))
+        report.update({'query': query, 'check': check, 'document': document,
+                       'command_check': command_check}[payload['kind']](payload['plan']))
         # Reject NaN/Infinity and overly large results before reporting success.
         encoded = json.dumps(report, ensure_ascii=True, allow_nan=False)
         if len(encoded) > 50000:

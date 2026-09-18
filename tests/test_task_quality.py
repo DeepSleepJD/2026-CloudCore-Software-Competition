@@ -225,17 +225,17 @@ class QualityFlowTests(unittest.TestCase):
         argv = shlex.split(command)
         encoded = re.findall(r"b64decode\('([A-Za-z0-9+/=]+)'\)", argv[2])[-1]
         payload = json.loads(base64.b64decode(encoded))
-        self.assertEqual(payload['kind'], 'check')
-        self.assertEqual(payload['plan']['argv'], ['python3', 'verify.py'])
-        payload['plan']['argv'][0] = sys.executable
+        self.assertIn(payload['kind'], ('check', 'command_check'))
+        checker = payload['plan']['checker'] if payload['kind'] == 'command_check' else payload['plan']
+        self.assertEqual(checker['argv'], ['python3', 'verify.py'])
+        checker['argv'][0] = sys.executable
         replacement = base64.b64encode(json.dumps(payload).encode()).decode()
         return execute_helper('python3 -c ' + shlex.quote(argv[2].replace(encoded, replacement)))
 
     def test_repair_can_trigger_check_without_model_roundtrip(self):
         Path(self.temp.name, 'verify.py').write_text('print("TOKEN: checked")\n')
         self.begin(self.engineering_task())
-        self.step(llmResp='{"action":"command","command":"repair_current_workspace","verify":true}')
-        r = self.step(lastCmdResult='[exitCode:0]\nrepaired')
+        r = self.step(llmResp='{"action":"command","command":"echo repaired","verify":true}')
         self.assertTrue(r['executeCmd'])
         self.assertFalse(r['prompt'])
         self.assert_answer(self.step(lastCmdResult=self.run_checker(r['executeCmd'])), {'token': 'checked'})

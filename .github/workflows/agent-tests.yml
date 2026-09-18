@@ -36,4 +36,4 @@ jobs:
             if curl --fail --silent http://127.0.0.1:18765/ > /tmp/jd-agent-smoke/health.json; then break; fi
             sleep 0.2
           done
-          python -c "import json; d=json.load(open('/tmp/jd-agent-smoke/health.json')); assert d['version']=='v7.3-jd'"
+          python -c "import json; d=json.load(open('/tmp/jd-agent-smoke/health.json')); assert d['version']=='v7.4-jd'"

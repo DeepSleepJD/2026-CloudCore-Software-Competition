@@ -11,6 +11,7 @@ import re
 
 from .model import command
 from .task_trace import TaskTrace
+from .task_evidence import PageEvidence, ProtocolMemory
 from .task_checks import REPORT, WORKFLOWS, describe, grounded_url, identity, query_observation, shape_error
 
 LOG = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ aggregations支持count、constant、distinct、sum、min、max、first_by、las
 query会自动在沙盒取齐分页、按id_field去重并计算答案，成功后直接提交；失败会给出原因，不需要你猜测总量。
 查询失败时查看query_feedback.diagnostics：response_preview是服务器真实回复的有界摘录，authentication_hint是认证提示。根据具体信息纠正认证、参数和字段，不能把摘录中的数组样本当成全部数据；不要照抄已经被服务端否定的旧文档。
 完整取数后若只有部分字段算出，会先提交这些字段争取部分分；若任务仍在进行，参考confirmed_fields和field_errors修正剩余计算，返回包含已知字段的完整答案或修正后的query。禁止为未知字段编造0、null或占位值。
-工程题完成修复的command可附加"verify":true；若本题明确给出可识别的验收命令，程序会自动运行验收并提交其真实token。
+工程题完成修复的command应附加"verify":true；程序会在同一次沙盒调用中运行本题验收并提交真实token，无需再让模型转述。修复命令不必自己重复执行验收。
 skill的solve接收当前完整任务字符串，解析变化参数，返回该题要求的答案（JSON可序列化）。
 可以使用沙盒提供的文件/API，不要虚构文件、接口、执行结果或答案。缺少证据时先发command探索。
 match不要只写“任务”等泛词；代码不得把当前题的答案硬编码成通用答案。
@@ -38,6 +39,9 @@ match不要只写“任务”等泛词；代码不得把当前题的答案硬编
 已经得到答案就直接answer，不要为了生成skill额外消耗回合。仅在确有可复用程序且时间充足时返回skill。
 task包含入口描述和已读取的题目正文；task_file为正文。根据recent_history中的实际错误修正，不能重复失败的调用。
 document_path和workspace为沙盒实际定位的本题路径。每条command会重新绑定workspace；需要其他目录可在command动作附加"workspace":"本题实际工作目录"。不要假定上一条命令的cd会保留。接口文档可能过时，以真实响应纠正认证方式、参数名和数据结构。
+task_file可能已经包含引用文档和工作区规范，先检查已给出的内容，不要重复cat。一次命令完成所需检查或修复，预留执行及提交回合。
+verified_interfaces是同一服务在本局成功调用的协议经验，不是当前答案。根据本题重新绑定所有业务参数、凭据和聚合字段；无需重新猜测已有证据支持的端点。以实际错误推翻过时经验。
+查询计划必须覆盖submission_example中的字段。文本排序需从本题数据定义完整顺序（包括复合年代等实际取值），不支持的复杂排序用代码计算；不要猜测或遗漏字段。
 不需要长篇解释。遵循题目要求的答案格式；不要把answer对象再包一层说明。
 '''
 
@@ -85,6 +89,7 @@ class TaskRunner:
         key = hashlib.sha256(team_key.encode()).hexdigest()[:16]
         self.cache_path = Path(config.state_dir) / (key + "_skills.json")
         self.trace = TaskTrace(self.cache_path)
+        self.protocol_memory = ProtocolMemory()
         self.skills = []
         try:
             cached = json.loads(self.cache_path.read_text(encoding="utf-8"))
@@ -132,6 +137,8 @@ class TaskRunner:
         self.attempts = []
         self.command_key = None
         self.tool_request = None
+        self.tool_plan = None
+        self.page_evidence = PageEvidence()
         self.work_allowed = True
         self.verify_after_command = False
         self.query_feedback = {}
@@ -170,6 +177,7 @@ class TaskRunner:
             return {}
         self.tool_request = hashlib.sha256((self.active + str(world.round) + str(self.cmd_calls)).encode()).hexdigest()[:20]
         payload = {'kind': kind, 'plan': plan, 'request': self.tool_request}
+        self.tool_plan = plan
         source = Path(__file__).with_name('task_sandbox.py').read_text(encoding='utf-8')
         code = 'import base64,json\nns={"__name__":"zk_sandbox"}\n'
         code += 'exec(compile(base64.b64decode(' + repr(base64.b64encode(source.encode()).decode()) + '),"<task-helper>","exec"),ns)\n'
@@ -178,7 +186,8 @@ class TaskRunner:
         self.command_key = key
         self.cmd_calls += 1
         self.history.append({'tool': kind, 'stage': {'query': 'query_all_pages', 'check': 'verify_current_workspace',
-                                                   'document': 'read_task_and_references'}[kind]})
+                                                   'document': 'read_task_and_references',
+                                                   'command_check': 'repair_and_verify_same_call'}[kind]})
         self.trace.emit('tool_plan', world.round, kind=kind, request=self.tool_request, plan=plan)
         return {'executeCmd': 'python3 -c ' + shlex.quote(code)}
 
@@ -335,9 +344,10 @@ class TaskRunner:
                                          "response": str(raw)[:2000]})
             else:
                 output = world.data.get("lastCmdResult") or ""
+                executed_command = self.command_key
                 self.record_output(output)
                 self.history.append({"sandbox": output[-20000:]})
-                if kind in ('query', 'check', 'document'):
+                if kind in ('query', 'check', 'document', 'command_check'):
                     report = None
                     if output.startswith('[exitCode:0]\n') and '[TRUNCATED]' not in output:
                         for line in reversed(output.splitlines()):
@@ -370,6 +380,10 @@ class TaskRunner:
                                 ('diagnostics', 'field_errors', 'partial', 'records', 'pages') if key in report}
                             if self.field_errors:
                                 self.history.append({'query_partial': self.query_feedback})
+                            if self.tool_plan:
+                                self.protocol_memory.store(self.tool_plan, self.workspace,
+                                    records_path=self.tool_plan.get('records_path'),
+                                    pagination=self.tool_plan.get('pagination'), id_field=self.tool_plan.get('id_field'))
                         else:
                             self.checked_answer = report['answer']
                         if kind != 'document' and report['answer']:
@@ -383,8 +397,22 @@ class TaskRunner:
                                                    if isinstance(report, dict) else {}}
                         self.candidate = None
                     self.tool_request = None
+                    self.tool_plan = None
                 elif self.contract['family'] == 'query':
-                    self.query_issue = query_observation(output)
+                    issue = query_observation(output)
+                    complete = self.page_evidence.observe(executed_command or '', output)
+                    self.protocol_memory.remember(executed_command or '', output, self.workspace)
+                    if complete:
+                        issue = ''
+                        self.trace.emit('pagination_complete', world.round, records=self.page_evidence.total,
+                                        offsets=sorted(self.page_evidence.pages))
+                    # Reading a directory or documentation cannot erase a known API failure.
+                    structured = False
+                    try:
+                        structured = isinstance(json.loads(output.split('\n', 1)[1]), (dict, list))
+                    except (ValueError, IndexError):
+                        pass
+                    self.query_issue = issue or (self.query_issue if not structured else '')
                     self.have_query_output = not self.query_issue
                 if kind == 'command' and self.verify_after_command:
                     self.verify_after_command = False
@@ -442,6 +470,7 @@ class TaskRunner:
             "workflow": WORKFLOWS[self.contract['family']], "task_family": self.contract['family'],
             "submission_example": self.contract['example'], "query_issue": self.query_issue,
             "query_feedback": self.query_feedback, "confirmed_fields": self.confirmed_fields,
+            "verified_interfaces": self.protocol_memory.relevant(self.context(), self.workspace),
             "field_errors": self.field_errors,
             "rejected_answers": list(sorted(self.rejected_answers))[-3:],
             "instruction": "剩余不足4回合时优先提交已有证据支持的最佳答案，不再探索无关文件。" if remaining < 4 else "按题目要求查询和校验。",
@@ -494,12 +523,17 @@ class TaskRunner:
         if self.at_limit("cmd"):
             self.history.append({"command_error": "已达到本地命令次数上限，请根据已有证据直接回答。"})
             return {}
-        if self.remaining(world) < (2 if action in ("skill", "query") else 3):
+        checker = self.contract['checker']
+        combined = action == 'command' and checker and (obj.get('verify') is True or
+                   (isinstance(obj.get('command'), str) and
+                    re.search(r'&&\s*' + re.escape(shlex.join(checker['argv'])) + r'\s*$', obj['command'])))
+        if self.remaining(world) < (2 if action in ("skill", "query") or combined else 3):
             self.history.append({"deadline_error": "没有足够回合执行并处理命令，请立即answer提交已有证据支持的答案。"})
             return {}
         if action == 'query':
             plan = obj.get('plan')
             corpus = self.context() + '\n' + '\n'.join(h.get('sandbox', '') for h in self.history)
+            corpus += '\n' + '\n'.join(m['url'] for m in self.protocol_memory.relevant(self.context(), self.workspace))
             if not isinstance(plan, dict) or not grounded_url(plan.get('url'), corpus):
                 self.history.append({'query_error': 'url必须来自当前题目或实际文档的完整地址，或明确给出的服务地址与接口路径，不允许猜测。'})
                 return {}
@@ -524,9 +558,21 @@ class TaskRunner:
                 if not isinstance(workspace, str) or not workspace.strip() or '\x00' in workspace:
                     self.history.append({'command_error': 'workspace必须是有效目录字符串。'})
                     return {}
-                self.workspace = posixpath.normpath(posixpath.join(self.workspace or '', workspace))
+                absolute = posixpath.isabs(workspace) or re.match(r'^[A-Za-z]:/', workspace)
+                self.workspace = posixpath.normpath(workspace if absolute else posixpath.join(self.workspace or '', workspace))
             if self.workspace:
                 cmd = 'cd ' + shlex.quote(self.workspace) + ' && ' + cmd
+            checker = self.contract['checker']
+            # A trailing, explicitly documented verifier can be scheduled by the
+            # runner. Separate it from the repair to handle CRLF without extra turns.
+            trailing = None
+            if checker:
+                verifier = shlex.join(checker['argv'])
+                trailing = re.search(r'\s*&&\s*' + re.escape(verifier) + r'\s*$', cmd)
+            if checker and (obj.get('verify') is True or trailing):
+                repair = cmd[:trailing.start()] if trailing else cmd
+                return self.tool('command_check', {'command': repair, 'cwd': self.workspace,
+                                                   'checker': checker}, world)
             if self.repeat_blocked(cmd.strip()):
                 self.history.append({'repeat_error': '此命令已连续两次返回相同结果；请修改命令或使用现有证据作答。'})
                 return {}

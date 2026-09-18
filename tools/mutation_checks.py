@@ -15,6 +15,7 @@ from test_task_protocol import TaskProtocolTests
 from test_task_quality import QualityFlowTests
 from test_query_recovery import QueryRecoveryTests
 from test_task_trace import TaskTraceTests
+from test_task_iteration import RecordedMatchTests, VariableTaskTests
 from agent.task_sandbox import _query
 from agent.tasks import TaskRunner
 from agent.strategy import Planner
@@ -107,6 +108,19 @@ def main():
         with patch(target, bad):
             result = unittest.TestResult()
             TaskTraceTests(test).run(result)
+            results[name] = bool(result.failures or result.errors)
+    iteration_mutants = [
+        ('forget_previous_query_pages', 'agent.task_evidence.PageEvidence.observe', lambda *args: False,
+         RecordedMatchTests, 'test_beijing_two_observed_pages_submit_at_round_35'),
+        ('reject_documented_endpoint_without_query_string', 'agent.tasks.grounded_url', lambda *args: False,
+         VariableTaskTests, 'test_short_followups_discover_renamed_docs_and_bind_new_parameters'),
+        ('forget_verified_interface_protocol', 'agent.task_evidence.ProtocolMemory.store', lambda *args, **kwargs: None,
+         RecordedMatchTests, 'test_verified_protocol_survives_new_task_without_old_business_values'),
+    ]
+    for name, target, bad, case, test in iteration_mutants:
+        with patch(target, bad):
+            result = unittest.TestResult()
+            case(test).run(result)
             results[name] = bool(result.failures or result.errors)
     print(json.dumps({"detected": sum(results.values()), "total": len(results), "mutants": results}, indent=2))
     if not all(results.values()):
