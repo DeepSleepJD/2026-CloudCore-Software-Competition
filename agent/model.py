@@ -76,6 +76,24 @@ class World:
         self.blocked = self.occupied | {p for p, k in self.zones.items() if k != "land"}
         self.prices = {r["name"]: r["price"] for r in request.get("vendorShopList", [])}
         self.shop = {r["name"]: r["price"] for r in request.get("weaponShopList", [])}
+        self.phase_task = str(request.get("phaseTask") or "")
+        self.llm_resp = str(request.get("llmResp") or "")
+        head, _, out = str(request.get("lastCmdResult") or "").partition("\n")
+        self.last_cmd = {"code": head, "out": out.strip()}
+        self.tasks = []
+        for task in (team.get("playerTasks") or []):
+            try:
+                spot = task["taskPosition"]
+                self.tasks.append({
+                    "type": str(task.get("taskType") or ""),
+                    "p": (int(spot["x"]), int(spot["y"])),
+                    "cooldown": int(task.get("coldDownRounds") or 0),
+                    "valid": bool(task.get("isValid")),
+                    "timeout": int(task.get("timeoutRounds") or 0),
+                    "gold": int(task.get("goldReward") or 0),
+                })
+            except (KeyError, TypeError, ValueError):
+                continue
 
     def inside(self, p):
         return 0 <= p[0] < self.width and 0 <= p[1] < self.height

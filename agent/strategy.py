@@ -1,18 +1,22 @@
 """Daytime construction/economy and one-operator nighttime defence."""
+import re
+
 from .model import World, Layout, ORES, command, distance, neighbours, wire
 from .navigation import paths
-from .combat import rocket_targets
+from .combat import rocket_targets, rocket_wall_targets
 
 
 class Planner:
-    def __init__(self, world, avoided):
+    def __init__(self, world, avoided, task=None):
         self.w = world
         self.layout = Layout.for_world(world)
         self.front = set(self.layout.front)
         self.avoided = avoided
+        self.task = task if task is not None else {"state": "idle"}
         self.commands = {}
         self.reserved = set()
         self.sites = set()
+        self.fired = set()
         self.budget = world.gold
         self.build_count = len(world.towers)
         self.operator = min(world.actors, key=lambda r: (r.kind != "pioneer", distance(r.p, self.layout.operator), r.id)) if world.actors else None
@@ -110,10 +114,9 @@ class Planner:
             if unit.level < 3 and name in actor.bag:
                 priority = 0 if unit.kind == "station" and unit.health < 1200 else 1 if unit.kind == "rocket" else 2
                 if unit.kind == "wall":
-                    priority = (0.5 if unit.health < 350 else 2) + unit.health / (1000 + 500 * (unit.level - 1))
-                    # Front walls outrank every cap wall; caps only see vouchers once no front wall does.
-                    if unit.p not in self.front:
-                        priority += 10
+                    # Corridor-centre first: position rank dominates urgency (spread < 10); caps rank last.
+                    rank = self.layout.front.index(unit.p) if unit.p in self.front else len(self.layout.front)
+                    priority = rank * 10 + (0.5 if unit.health < 350 else 2) + unit.health / (1000 + 500 * (unit.level - 1))
                 options.append((priority, distance(actor.p, unit.p), unit.p, name))
             max_health = 1000 + 500 * (unit.level - 1)
             if unit.kind == "wall" and unit.health < max_health * 0.65 and "WallFixer" in actor.bag:
@@ -169,15 +172,66 @@ class Planner:
             for tower in self.w.towers:
                 if tower.kind != "rocket" or tower.cooldown > 0 or distance(actor.p, tower.p) != 1:
                     continue
-                targets, score = rocket_targets(self.w, tower)
+                if tower.id in self.fired:
+                    continue
+                # Strict handover: once no robot targets us, bombard the enemy walls
+                # (lowest HP first); robots targeting the other side never block this.
+                if any(r.target_team == self.w.team for r in self.w.robots):
+                    targets, score = rocket_targets(self.w, tower)
+                else:
+                    targets, score = rocket_wall_targets(self.w, tower)
                 if targets:
                     choices.append((score, -tower.id, tower, targets))
             if choices:
                 _, _, tower, targets = max(choices, key=lambda c: c[:2])
+                self.fired.add(tower.id)
                 self.commands[str(tower.id)] = {"action": "attack", "controllerId": str(actor.id),
                                                  "targetPos": [wire(p) for p in targets]}
                 return True
         return self.approach(actor, self.layout.operator, exact=True, safe=False)
+
+    def task_day(self, actor):
+        """Idle -> go -> accepted transitions; the accepted phase is TaskSolver's."""
+        task = self.task
+        state = task.get("state", "idle")
+        if state == "go":
+            if self.w.phase_task:
+                task["state"] = "active"
+                task.setdefault("accepted_round", self.w.round)
+                return False
+            point = task.get("point")
+            info = next((t for t in self.w.tasks if t["p"] == point), None)
+            if point is None or info is None or not (info["valid"] and info["cooldown"] == 0):
+                task["state"] = "idle"
+                return False
+            if task.get("accepts", 0) >= 3:
+                task["state"] = "idle"
+                return False
+            if self.approach(actor, point, command("acceptTask")):
+                cmd = self.commands.get(str(actor.id)) or {}
+                if cmd.get("action") == "acceptTask":
+                    task["accepts"] = task.get("accepts", 0) + 1
+                return True
+            task["go_fails"] = task.get("go_fails", 0) + 1
+            if task["go_fails"] > 5:
+                task["state"] = "idle"
+            return False
+        if state != "idle" or self.w.phase_task:
+            return False
+        ready = [t for t in self.w.tasks if t["valid"] and t["cooldown"] == 0]
+        if not ready:
+            return False
+        target = min(ready, key=lambda t: (distance(actor.p, t["p"]), t["type"]))
+        budget = 6 if target["type"] in task.get("known", []) else 20
+        remaining = 70 - self.w.day_tick
+        if remaining <= distance(actor.p, target["p"]) + distance(target["p"], self.layout.operator) + budget:
+            return False
+        # Keep retry counters when re-picking the same point across idle resets.
+        task.update({"state": "go", "type": target["type"], "point": target["p"],
+                     "timeout": target["timeout"],
+                     "accepts": task.get("accepts", 0) if task.get("point") == target["p"] else 0,
+                     "go_fails": task.get("go_fails", 0) if task.get("point") == target["p"] else 0})
+        return self.task_day(actor)
 
     def retreat(self, actor):
         if actor.p not in self.danger:
@@ -226,7 +280,8 @@ class Planner:
                 if self.purchase(actor, f"StationUpgradeVoucher{self.w.station.level}", reserve=reserve):
                     return
             damaged = sorted((r for r in self.w.walls if r.health < (1000 + 500 * (r.level - 1)) * 0.6),
-                             key=lambda r: (r.p not in self.front, r.health, r.id))
+                             key=lambda r: (self.layout.front.index(r.p) if r.p in self.front else len(self.layout.front),
+                                            r.health, r.id))
             if damaged:
                 wall = damaged[0]
                 # Upgrading both repairs and strengthens the exposed section.
@@ -238,7 +293,7 @@ class Planner:
             # spend spare gold pushing the exposed front walls toward level 3.
             ready = [r for r in self.w.walls if r.p in self.front and r.level < 3]
             if self.build_count >= 3 and (self.w.station.level >= 3 or self.w.station.health >= 800) and ready:
-                wall = min(ready, key=lambda r: (r.level, r.health, self.layout.front.index(r.p)))
+                wall = min(ready, key=lambda r: (self.layout.front.index(r.p), r.level, r.health))
                 if self.purchase(actor, f"WallUpgradeVoucher{wall.level}", reserve=reserve):
                     return
         if not self.mine(actor):
@@ -256,12 +311,18 @@ class Planner:
             if actor.kind != "pioneer":
                 continue
             if not self.w.day:
-                if actor != self.operator:
-                    self.use_supplies(actor)
+                # The operator already fired via the run() prologue; extra pioneers
+                # man another ready tower only when they have nothing to heal/use.
+                if actor != self.operator and not self.use_supplies(actor):
+                    self.operate(actor)
                 continue
             return_margin = distance(actor.p, self.layout.operator) + 8
             if 70 - self.w.day_tick <= return_margin:
                 self.operate(actor)
+                continue
+            if self.task_day(actor):
+                continue
+            if self.w.phase_task and not self.task.get("abandoned"):
                 continue
             if self.use_supplies(actor):
                 continue
@@ -272,6 +333,132 @@ class Planner:
         return {"roleCommandMap": self.commands, "prompt": "", "executeCmd": ""}
 
 
+class TaskSolver:
+    """One accepted self-evolution task: sandbox exploration plus platform-LLM round-trips.
+
+    Drives only the top-level `prompt`/`executeCmd` fields and the pioneer's
+    submitAnswer; role movement stays with Planner. All state lives in the
+    Agent-owned task dict so nothing survives a World rebuild unintentionally.
+    """
+    LADDER = ("pwd && ls -la && find . -maxdepth 3 -type f 2>/dev/null | head -50",
+              "find / -maxdepth 2 2>/dev/null | head -40")
+
+    def __init__(self, sop, task):
+        self.sop = sop
+        self.task = task
+
+    def step(self, world, response):
+        task = self.task
+        if task.get("abandoned"):
+            return response
+        if not world.phase_task:
+            if task.get("state") == "active":
+                self._record()
+            # Keep type/known so the next task of the same kind can replay the recipe.
+            task.update({"state": "idle", "outputs": [], "cmd": None, "stuck": 0,
+                         "submits": 0, "guess": "", "abandoned": False})
+            task.pop("accepted_round", None)
+            task.pop("submitted_round", None)
+            return response
+        if task.get("state") != "active":
+            task.update({"state": "active", "phase": world.phase_task,
+                         "accepted_round": task.get("accepted_round", world.round),
+                         "outputs": [], "cmd": None, "stuck": 0, "submits": 0})
+        pioneer = next((r for r in world.actors if r.kind == "pioneer"), None)
+        if pioneer is None:
+            task.clear()
+            task["state"] = "idle"
+            return response
+        if str(pioneer.id) in response["roleCommandMap"]:
+            # Planner already steered the pioneer this round (dusk walk, retreat);
+            # its command wins — submitting here would silently discard the move.
+            return response
+        if task.get("submitted_round") == world.round - 1:
+            return response
+        spent = world.round - task["accepted_round"]
+        budget = 0.6 * task.get("timeout") if task.get("timeout") else 35
+        parsed = self._parse(world.llm_resp)
+        if spent > budget:
+            guess = task.get("guess") or (parsed[1] if parsed and parsed[0] == "ANSWER" else "")
+            return self._submit(world, response, pioneer, guess or world.phase_task)
+        if parsed and parsed[0] == "ANSWER" and (parsed[1] != task.get("guess") or not task.get("submits")):
+            return self._submit(world, response, pioneer, parsed[1])
+        if task.get("submits", 0) >= 2:
+            # Wrong twice: walk away (ends the task, partial credit) instead of squatting.
+            task["abandoned"] = True
+            task["state"] = "idle"
+            return response
+        outputs = task["outputs"]
+        out = world.last_cmd.get("out", "")
+        if task.get("cmd") and out:
+            entry = [task["cmd"], out[:800]]
+            if outputs and outputs[-1] == entry:
+                task["stuck"] += 1
+            else:
+                outputs.append(entry)
+                del outputs[:-6]
+        if parsed and parsed[0] == "CMD" and len(parsed[1]) <= 300:
+            cmd = parsed[1]
+        elif outputs or not self.sop.get(task.get("type")):
+            rung = min(task.get("stuck", 0), 2)
+            cmd = self.LADDER[1] if rung >= 2 else self._doc_cmd(outputs) if rung == 1 else self.LADDER[0]
+        else:
+            # Recipe replay: hand the recorded context straight to the LLM.
+            cmd = None
+        if cmd:
+            task["cmd"] = cmd
+            response["executeCmd"] = cmd
+        response["prompt"] = self._prompt(world, task, outputs)
+        return response
+
+    @staticmethod
+    def _parse(text):
+        for line in str(text or "").splitlines():
+            match = re.match(r"\s*(CMD|ANSWER)\s*[:：]\s*(.+)", line, re.I)
+            if match:
+                return match.group(1).upper(), match.group(2).strip()
+        return None
+
+    @staticmethod
+    def _doc_cmd(outputs):
+        for _, out in outputs:
+            names = re.findall(r"\S+\.(?:md|txt|py|json|sh|log)\b", out)
+            if names:
+                return f"head -120 {names[0]}"
+        return None
+
+    def _prompt(self, world, task, outputs):
+        recipe = self.sop.get(task.get("type")) or {}
+        parts = [f"任务描述:\n{world.phase_task}"]
+        if recipe.get("context"):
+            parts.append("同类型任务的历史资料(以往任务沙盒中的关键内容):\n" + recipe["context"][:1500])
+        if outputs:
+            parts.append("沙盒探索记录(命令与输出):\n" +
+                         "\n".join(f"$ {c}\n{o}" for c, o in outputs)[:4000])
+        parts.append("只输出一行,格式二选一,不要有任何其他文字:\n"
+                     "CMD: <一条15秒内可完成的shell命令,沙盒不能访问外网>\n"
+                     "ANSWER: <任务的最终答案文本>")
+        return "\n\n".join(parts)
+
+    def _submit(self, world, response, pioneer, answer):
+        task = self.task
+        task["submits"] = task.get("submits", 0) + 1
+        task["guess"] = answer
+        task["submitted_round"] = world.round
+        response["roleCommandMap"][str(pioneer.id)] = {"action": "submitAnswer",
+                                                       "taskAnswer": str(answer)[:2000]}
+        return response
+
+    def _record(self):
+        task = self.task
+        kind = task.get("type")
+        if not kind or task.get("submits", 0) < 1:
+            return
+        context = "\n".join(f"$ {c}\n{o}" for c, o in task.get("outputs", []))
+        self.sop[kind] = {"cmds": [c for c, _ in task.get("outputs", [])],
+                          "context": context[:3000]}
+
+
 class Agent:
     """Small match-local memory; authoritative positions/resources always come from requests."""
     def __init__(self):
@@ -279,6 +466,8 @@ class Agent:
         self.last_round = 0
         self.previous = {}
         self.avoided = {}
+        self.task = {"state": "idle"}
+        self.sop = {}
 
     def decide(self, request):
         world = World(request)
@@ -287,6 +476,7 @@ class Agent:
         key = (request["teamOur"].get("teamId"), world.team, world.station.p)
         if key != self.key or world.round <= self.last_round:
             self.previous, self.avoided = {}, {}
+            self.task = {"state": "idle"}
         if world.round == self.last_round + 1:
             results = request.get("lastRoundRoleActionResults", {})
             for role, cmd in self.previous.items():
@@ -294,7 +484,13 @@ class Agent:
                     target = cmd["targetPos"][0]
                     self.avoided[(target["x"], target["y"])] = world.round + 10
         self.avoided = {p: expiry for p, expiry in self.avoided.items() if expiry > world.round}
-        response = Planner(world, self.avoided).run()
+        self.task["known"] = sorted(self.sop)
+        response = Planner(world, self.avoided, task=self.task).run()
+        try:
+            response = TaskSolver(self.sop, self.task).step(world, response)
+        except Exception:
+            # The task layer must never take down the round's defence commands.
+            self.task = {"state": "idle"}
         self.key, self.last_round = key, world.round
         self.previous = response["roleCommandMap"]
         return response

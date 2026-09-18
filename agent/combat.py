@@ -33,3 +33,14 @@ def rocket_targets(world, tower):
         for i, damage in hits[target]:
             health[i] = max(0, health[i] - damage)
     return selected, total
+
+
+def rocket_wall_targets(world, tower):
+    """Enemy walls, lowest HP first; the wire contract needs exactly level cells."""
+    walls = sorted((r for r in world.enemy if r.kind == "wall"), key=lambda r: (r.health, r.p))
+    selected = [r.p for r in walls if distance(r.p, tower.p) <= tower.reach][:min(3, max(1, tower.level))]
+    if not selected:
+        return [], 0
+    while len(selected) < tower.level:
+        selected.append(selected[-1])
+    return selected, 1
