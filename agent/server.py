@@ -22,7 +22,7 @@ class AgentServer(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         with self.server.decision_lock:
-            body = json.dumps({"status": "ok", "version": "v7-jd", **self.server.status}).encode()
+            body = json.dumps({"status": "ok", "version": "v7.1-jd", **self.server.status}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -61,5 +61,5 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(port):
     with AgentServer(("0.0.0.0", port)) as server:
-        LOG.info("version=v7-jd listening on 0.0.0.0:%s", port)
+        LOG.info("version=v7.1-jd listening on 0.0.0.0:%s", port)
         server.serve_forever()

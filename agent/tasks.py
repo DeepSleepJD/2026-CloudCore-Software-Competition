@@ -5,11 +5,12 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import posixpath
 import shlex
 import re
 
 from .model import command
-from .task_checks import REPORT, WORKFLOWS, describe, identity, query_observation, shape_error
+from .task_checks import REPORT, WORKFLOWS, describe, grounded_url, identity, query_observation, shape_error
 
 LOG = logging.getLogger(__name__)
 MARKER = "__ZK_ANSWER__="
@@ -22,6 +23,7 @@ SYSTEM = '''你是《未来战争》自进化任务解题器。任务原文和�
 {"action":"query","plan":{"url":"本题明确给出的GET地址","headers":{},"params":{},"records_path":"记录数组的实际点分路径","id_field":"唯一ID字段（如有）","success":{"path":"业务状态字段","equals":200},"pagination":{"mode":"offset或page或cursor或none","param":"本题分页参数","start":0,"size_param":"本题页大小参数","size":100,"total_path":"总量字段路径"},"aggregations":{"答案字段":{"op":"count"}}}}
 query中的字段名、认证、分页起点必须来自本题，示例数值不代表实际接口。success没有明确约定时省略；分页可用has_more_path或next_path替代total_path。cursor用next_path；none仅用于明确不分页的接口。
 aggregations支持count、distinct、sum、min、max、first_by、last_by；除count外指定field；可用where对象做精确过滤；first_by/last_by必须指定sort_field，年代字符串还需题目明确的order列表。特殊计算或非GET接口使用command。
+题目要求的固定字段可用constant，例如"city":{"op":"constant","value":"从本题读取的城市"}。必须覆盖题目要求的字段；字段名不代表语义，例如oldest_era可能要求遗产名称，应以题目文字为准。
 query会自动在沙盒取齐分页、按id_field去重并计算答案，成功后直接提交；失败会给出原因，不需要你猜测总量。
 工程题完成修复的command可附加"verify":true；若本题明确给出可识别的验收命令，程序会自动运行验收并提交其真实token。
 skill的solve接收当前完整任务字符串，解析变化参数，返回该题要求的答案（JSON可序列化）。
@@ -32,6 +34,7 @@ match不要只写“任务”等泛词；代码不得把当前题的答案硬编
 交互取值题：按题目规定的接口和步骤获取本题token，不能复用上题token或回放答案。
 已经得到答案就直接answer，不要为了生成skill额外消耗回合。仅在确有可复用程序且时间充足时返回skill。
 task包含入口描述和已读取的题目正文；task_file为正文。根据recent_history中的实际错误修正，不能重复失败的调用。
+document_path和workspace为沙盒实际定位的本题路径。每条command会重新绑定workspace；需要其他目录可在command动作附加"workspace":"本题实际工作目录"。不要假定上一条命令的cd会保留。接口文档可能过时，以真实响应纠正认证方式、参数名和数据结构。
 不需要长篇解释。遵循题目要求的答案格式；不要把answer对象再包一层说明。
 '''
 
@@ -103,6 +106,8 @@ class TaskRunner:
         self.pioneer_id = None
         self.started_round = None
         self.brief = ""
+        self.document_path = None
+        self.workspace = None
         self.bootstrap_done = False
         self.ready = None
         self.submitted_round = None
@@ -159,7 +164,8 @@ class TaskRunner:
         self.pending = kind
         self.command_key = key
         self.cmd_calls += 1
-        self.history.append({'tool': kind, 'stage': 'query_all_pages' if kind == 'query' else 'verify_current_workspace'})
+        self.history.append({'tool': kind, 'stage': {'query': 'query_all_pages', 'check': 'verify_current_workspace',
+                                                   'document': 'read_task_and_references'}[kind]})
         return {'executeCmd': 'python3 -c ' + shlex.quote(code)}
 
     @staticmethod
@@ -271,12 +277,8 @@ class TaskRunner:
             else:
                 output = world.data.get("lastCmdResult") or ""
                 self.record_output(output)
-                if kind == "bootstrap":
-                    if output.startswith("[exitCode:0]\n"):
-                        self.brief = output.split("\n", 1)[1]
-                        self.contract = describe(self.context())
                 self.history.append({"sandbox": output[-20000:]})
-                if kind in ('query', 'check'):
+                if kind in ('query', 'check', 'document'):
                     report = None
                     if output.startswith('[exitCode:0]\n') and '[TRUNCATED]' not in output:
                         for line in reversed(output.splitlines()):
@@ -288,12 +290,23 @@ class TaskRunner:
                                 break
                     if (isinstance(report, dict) and report.get('request') == self.tool_request
                             and report.get('kind') == kind and report.get('ok') is True
-                            and report.get('complete') is True and 'answer' in report):
-                        if kind == 'query':
+                            and report.get('complete') is True
+                            and ('documents' in report if kind == 'document' else 'answer' in report)):
+                        if kind == 'document':
+                            documents = report['documents']
+                            self.document_path = documents[0]['path']
+                            self.workspace = posixpath.dirname(self.document_path)
+                            self.brief = '\n\n'.join('文档 ' + d['path'] + '\n' + d['text']
+                                + ('\n[文档未读完，请按需继续读取]' if d.get('truncated') else '') for d in documents)
+                            self.contract = describe(documents[0]['text'], self.document_path)
+                            if self.contract['family'] == 'unknown':
+                                self.contract['family'] = describe(self.context())['family']
+                        elif kind == 'query':
                             self.have_query_output, self.query_issue = True, ''
                         else:
                             self.checked_answer = report['answer']
-                        self.ready = {'action': 'answer', 'answer': report['answer']}
+                        if kind != 'document':
+                            self.ready = {'action': 'answer', 'answer': report['answer']}
                     else:
                         error = report.get('error', '工具结果缺少成功/完整性证明或请求编号不匹配。') if isinstance(report, dict) else '工具执行失败或结果不可解析。'
                         self.history.append({'tool_error': error})
@@ -301,7 +314,7 @@ class TaskRunner:
                             self.query_issue = error
                         self.candidate = None
                     self.tool_request = None
-                elif kind != 'bootstrap' and self.contract['family'] == 'query':
+                elif self.contract['family'] == 'query':
                     self.query_issue = query_observation(output)
                     self.have_query_output = not self.query_issue
                 if kind == 'command' and self.verify_after_command:
@@ -336,9 +349,7 @@ class TaskRunner:
             # Only read a filename explicitly present in this task, inside the judge sandbox.
             filename = re.search(r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_./-]+\.md)(?![A-Za-z0-9_])", task)
             if filename and remaining >= 3 and not self.at_limit("cmd"):
-                self.pending = "bootstrap"
-                self.cmd_calls += 1
-                return {"executeCmd": "cat -- " + shlex.quote(filename.group(1))}
+                return self.tool('document', {'path': filename.group(1)}, world)
         # Match only after reading the current file, so body keywords and parameters exist.
         if not self.tried_cache:
             self.tried_cache = True
@@ -356,6 +367,7 @@ class TaskRunner:
         return {"prompt": SYSTEM + "\n" + json.dumps({
             "task": self.context(), "recent_history": self.history[-6:],
             "task_file": self.brief, "round": world.round, "remaining_rounds": remaining,
+            "document_path": self.document_path, "workspace": self.workspace,
             "workflow": WORKFLOWS[self.contract['family']], "task_family": self.contract['family'],
             "submission_example": self.contract['example'], "query_issue": self.query_issue,
             "rejected_answers": list(sorted(self.rejected_answers))[-3:],
@@ -413,9 +425,8 @@ class TaskRunner:
         if action == 'query':
             plan = obj.get('plan')
             corpus = self.context() + '\n' + '\n'.join(h.get('sandbox', '') for h in self.history)
-            urls = set(re.findall(r'https?://[^\s`<>"，。；]+', corpus))
-            if not isinstance(plan, dict) or not isinstance(plan.get('url'), str) or plan['url'] not in urls:
-                self.history.append({'query_error': 'url必须是当前题目或实际文档输出中出现的完整地址，不允许猜测。'})
+            if not isinstance(plan, dict) or not grounded_url(plan.get('url'), corpus):
+                self.history.append({'query_error': 'url必须来自当前题目或实际文档的完整地址，或明确给出的服务地址与接口路径，不允许猜测。'})
                 return {}
             page = plan.get('pagination')
             if not isinstance(page, dict) or not isinstance(plan.get('aggregations'), dict) or not isinstance(plan.get('records_path'), str):
@@ -433,6 +444,14 @@ class TaskRunner:
                 self.history.append({"command_error": "command必须是非空字符串，且不超过32768字符。"})
                 return {}
             self.candidate = None
+            workspace = obj.get('workspace')
+            if workspace is not None:
+                if not isinstance(workspace, str) or not workspace.strip() or '\x00' in workspace:
+                    self.history.append({'command_error': 'workspace必须是有效目录字符串。'})
+                    return {}
+                self.workspace = posixpath.normpath(posixpath.join(self.workspace or '', workspace))
+            if self.workspace:
+                cmd = 'cd ' + shlex.quote(self.workspace) + ' && ' + cmd
             if self.repeat_blocked(cmd.strip()):
                 self.history.append({'repeat_error': '此命令已连续两次返回相同结果；请修改命令或使用现有证据作答。'})
                 return {}
@@ -452,6 +471,8 @@ class TaskRunner:
                 return {}
             self.candidate = skill
             cmd = skill_command(skill["python"], self.context())
+            if self.workspace:
+                cmd = 'cd ' + shlex.quote(self.workspace) + ' && ' + cmd
             if self.repeat_blocked(cmd.strip()):
                 self.candidate = None
                 self.history.append({'repeat_error': '同一解题程序已连续两次无进展，请修改解法。'})

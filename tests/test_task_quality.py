@@ -14,6 +14,7 @@ from agent.task_checks import describe, shape_error, query_observation
 from agent.task_sandbox import query, check
 from agent.strategy import Agent
 from test_jd_v4 import scene
+from task_fixtures import document_reply
 
 
 @contextmanager
@@ -129,8 +130,8 @@ class QualityFlowTests(unittest.TestCase):
         return output
 
     def begin(self, text):
-        self.step(phaseTask='Read task_quality.md')
-        return self.step(lastCmdResult='[exitCode:0]\n' + text)
+        command = self.step(phaseTask='Read task_quality.md')['executeCmd']
+        return self.step(lastCmdResult=document_reply(command, text))
 
     def query_task(self, url):
         return '查询接口 ' + url + '\n分页统计数据。\n## 答案格式\n```json\n{"count":0}\n```'

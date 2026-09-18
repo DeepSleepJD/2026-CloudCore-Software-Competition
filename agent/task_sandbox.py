@@ -3,6 +3,9 @@
 No competition endpoint, credential, workspace or answer is embedded here.
 """
 import json
+import os
+from pathlib import Path
+import re
 import subprocess
 import time
 import urllib.parse
@@ -29,7 +32,10 @@ def aggregate(records, rules):
         where = rule.get('where', {})
         rows = [r for r in records if all(field(r, k) == v for k, v in where.items())]
         op = rule['op']
-        if op == 'count':
+        if op == 'constant':
+            # The model binds this from the current question, never a cached answer.
+            answer[name] = rule['value']
+        elif op == 'count':
             answer[name] = len(rows)
         elif op == 'distinct':
             values = [field(r, rule['field']) for r in rows]
@@ -59,6 +65,55 @@ def aggregate(records, rules):
         else:
             raise ValueError('unsupported aggregation: ' + str(op))
     return answer
+
+
+def document(plan):
+    """Locate a named task and read explicit sibling Markdown documents together."""
+    requested = Path(plan['path'])
+    base = Path(plan.get('base') or Path.cwd())
+    target = requested if requested.is_absolute() else base / requested
+    if not target.is_file() and not requested.is_absolute():
+        found, visited = set(), set()
+        started = time.monotonic()
+        roots = [base] if base != Path(base.anchor) else []
+        if os.name != 'nt' and Path('/tmp').is_dir() and Path('/tmp') not in roots:
+            roots.append(Path('/tmp'))
+        for root in roots:
+            for folder, dirs, files in os.walk(root, followlinks=False):
+                dirs[:] = [d for d in dirs if d not in {'.git', '.venv', 'node_modules', '__pycache__'}]
+                if folder in visited:
+                    dirs[:] = []
+                    continue
+                visited.add(folder)
+                if len(visited) > 2000 or time.monotonic() - started > 2:
+                    raise ValueError('document search budget reached; specify an exact path')
+                if len(Path(folder).relative_to(root).parts) >= 8:
+                    dirs[:] = []
+                if requested.name in files:
+                    candidate = Path(folder, requested.name).resolve()
+                    if candidate.as_posix().endswith('/' + requested.as_posix().lstrip('./')):
+                        found.add(candidate)
+            if found:
+                break
+        if len(found) != 1:
+            raise ValueError('ambiguous task document' if found else 'task document not found')
+        target = found.pop()
+    target = target.resolve(strict=True)
+    def read(path):
+        with path.open(encoding='utf-8-sig') as stream:
+            value = stream.read(12001)
+        return {'path': path.as_posix(), 'text': value[:12000], 'truncated': len(value) > 12000}
+    documents = [read(target)]
+    # Follow only references in the primary document; do not recursively explore.
+    referenced = re.findall(r'(?<![\w./-])([\w./-]+\.md)(?![\w])', documents[0]['text'])
+    for name in dict.fromkeys(referenced):
+        path = (target.parent / name).resolve()
+        if path == target or not path.is_file():
+            continue
+        documents.append(read(path))
+        if len(documents) == 3:
+            break
+    return {'documents': documents, 'complete': True}
 
 
 def query(plan):
@@ -169,7 +224,7 @@ def check(plan):
 def run(payload):
     report = {'request': payload['request'], 'kind': payload['kind'], 'ok': False}
     try:
-        report.update((query if payload['kind'] == 'query' else check)(payload['plan']))
+        report.update({'query': query, 'check': check, 'document': document}[payload['kind']](payload['plan']))
         # Reject NaN/Infinity and overly large results before reporting success.
         encoded = json.dumps(report, ensure_ascii=True, allow_nan=False)
         if len(encoded) > 50000:

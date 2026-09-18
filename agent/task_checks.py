@@ -1,10 +1,30 @@
 """Small task contracts and evidence checks, independent of a particular task set."""
 import json
 import math
+import posixpath
 import re
 import shlex
+from urllib.parse import urlsplit
 
 REPORT = '__ZK_TASK_RESULT__='
+
+
+def grounded_url(url, text):
+    """API docs often list the service origin and route separately."""
+    if not isinstance(url, str):
+        return False
+    observed = set(v.rstrip(').;，。；）') for v in re.findall(r'https?://[^\s`<>"，。；]+', text))
+    if url in observed:
+        return True
+    try:
+        target = urlsplit(url)
+        same_origin = any((urlsplit(v).scheme, urlsplit(v).netloc) == (target.scheme, target.netloc)
+                          for v in observed)
+        route = re.search(r'(?<![\w/.-])' + re.escape(target.path) + r'(?![\w/.-])', text)
+        return bool(target.scheme in ('http', 'https') and target.netloc and target.path
+                    and same_origin and route and not target.query and not target.fragment)
+    except ValueError:
+        return False
 
 
 def identity(value):
@@ -16,7 +36,7 @@ def identity(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
 
 
-def describe(text):
+def describe(text, document_path=None):
     """Only a labelled submission section supplies an example, never API examples."""
     lower = text.lower()
     family = 'unknown'
@@ -25,7 +45,7 @@ def describe(text):
     elif re.search(r'https?://', text) and re.search(r'查询|统计|query|records|pagination', lower):
         family = 'query'
     example = None
-    section = re.search(r'(?mi)^#{1,6}\s*(?:答案格式|提交格式|提交规则|答案输出格式|submission format|answer format)[^\n]*\n', text)
+    section = re.search(r'(?mi)^#{1,6}\s*(?:答案格式|提交格式|提交形式|提交规则|答案输出格式|submission format|answer format)[^\n]*\n', text)
     if section:
         body = re.split(r'(?m)^#{1,6}\s', text[section.end():], maxsplit=1)[0]
         for sample in re.findall(r'```(?:json)?\s*\n(.*?)```', body, re.S | re.I):
@@ -61,7 +81,10 @@ def describe(text):
         # Multiple distinct commands are ambiguous; leave them to ordinary exploration.
         unique = {tuple(a) for a in candidates}
         if len(unique) == 1 and len(directories) <= 1 and isinstance(example, dict) and set(example) == {'token'} and 'TOKEN' in text:
-            checker = {'argv': list(next(iter(unique))), 'cwd': next(iter(directories), None)}
+            cwd = next(iter(directories), None)
+            if document_path and (cwd is None or not posixpath.isabs(cwd)):
+                cwd = posixpath.normpath(posixpath.join(posixpath.dirname(document_path), cwd or '.'))
+            checker = {'argv': list(next(iter(unique))), 'cwd': cwd}
     return {'family': family, 'example': example, 'checker': checker}
 
 

@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from agent.strategy import Agent
 from agent.tasks import TaskRunner, parse_object
 from test_jd_v4 import scene, robot
+from task_fixtures import document_reply, helper_payload
 
 
 SOLVER = '''import re
@@ -29,10 +30,14 @@ SKILL = {"action": "skill", "match": ["城市历史建筑统计"], "python": SOL
 def run_fixture_solver(command):
     """Only run the fixed, reviewed fixture source inside our actual command wrapper."""
     argv = shlex.split(command)
+    cwd = None
+    if argv[0] == 'cd':
+        assert argv[2] == '&&'
+        cwd, argv = argv[1], argv[3:]
     assert argv[:2] == ["python3", "-c"]
     encoded = re.search(r"b64decode\('([A-Za-z0-9+/=]+)'\)", argv[2]).group(1)
     assert json.loads(base64.b64decode(encoded))["source"] == SOLVER
-    result = subprocess.run([sys.executable, *argv[1:]], capture_output=True, text=True, timeout=5)
+    result = subprocess.run([sys.executable, *argv[1:]], cwd=cwd, capture_output=True, text=True, timeout=5)
     assert result.returncode == 0, result.stderr
     return "[exitCode:0]\n" + result.stdout
 
@@ -58,11 +63,13 @@ class TaskProtocolTests(unittest.TestCase):
         self.data['teamOur']['playerTasks'] = [
             {'taskType': '自进化类1', 'isValid': True, 'timeoutRounds': timeout}]
         self.assertEqual(self.step()['roleCommandMap']['20011']['action'], 'acceptTask')
-        return self.step(phaseTask=task)
+        result = self.step(phaseTask=task)
+        self.document_command = result['executeCmd']
+        return result
 
     def body(self, value=7):
         text = '城市历史建筑统计：计算以下数据并返回count字段。count=' + str(value)
-        result = self.step(lastCmdResult='[exitCode:0]\n' + text)
+        result = self.step(lastCmdResult=document_reply(self.document_command, text))
         if result['prompt']:
             payload = json.loads(result['prompt'].splitlines()[-1])
             self.assertIn(text, payload['task'])
@@ -92,8 +99,8 @@ class TaskProtocolTests(unittest.TestCase):
         self.assertEqual(len(self.agent.missions.runner.skills), 1)
         # Restart to prove persistence, then a different task instance with different data.
         self.agent = Agent(self.temp.name)
-        self.assertEqual(self.start(task='请阅读task_2_chengdu.md，获取任务信息')['executeCmd'],
-                         'cat -- task_2_chengdu.md')
+        cmd = self.start(task='请阅读task_2_chengdu.md，获取任务信息')['executeCmd']
+        self.assertEqual(helper_payload(cmd)['plan']['path'], 'task_2_chengdu.md')
         r = self.body(42)
         self.assertFalse(r['prompt'], 'cached solver should run only after current body is read')
         self.assert_answer(self.step(lastCmdResult=run_fixture_solver(r['executeCmd'])), {'count': 42})

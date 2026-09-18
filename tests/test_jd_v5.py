@@ -3,6 +3,7 @@ from copy import deepcopy
 import json
 import tempfile
 import unittest
+from task_fixtures import document_reply, helper_payload
 from pathlib import Path
 
 from test_jd_v4 import scene, robot
@@ -92,9 +93,9 @@ class DeliveryAndTaskTests(unittest.TestCase):
                 d['phaseTask'] = '请阅读' + filename + '，获取任务信息'
                 d['teamOur']['roles'][3]['pos'] = {'x':24,'y':14}
                 r = a.decide(d)
-                self.assertEqual('cat -- ' + filename, r['executeCmd'])
+                self.assertEqual(filename, helper_payload(r['executeCmd'])['plan']['path'])
                 self.assertFalse(r['prompt'])
-                d.update(roundNo=11, lastCmdResult='[exitCode:0]\nReturn exactly ' + json.dumps(answer))
+                d.update(roundNo=11, lastCmdResult=document_reply(r['executeCmd'], 'Return exactly ' + json.dumps(answer)))
                 self.assertIn('Return exactly', a.decide(d)['prompt'])
                 d.update(roundNo=12, llmResp=json.dumps({'action':'answer','answer':answer}))
                 self.assertEqual(json.loads(a.decide(d)['roleCommandMap']['20011']['taskAnswer']), answer)
@@ -102,8 +103,8 @@ class DeliveryAndTaskTests(unittest.TestCase):
     def test_invalid_model_response_retries_with_original_task_file(self):
         d = scene(10)
         d['phaseTask'] = 'Read task_example.md'
-        self.agent.decide(d)
-        d.update(roundNo=11, lastCmdResult='[exitCode:0]\nRequired fields are city and count')
+        command = self.agent.decide(d)['executeCmd']
+        d.update(roundNo=11, lastCmdResult=document_reply(command, 'Required fields are city and count'))
         self.agent.decide(d)
         d.update(roundNo=12, lastCmdResult='', llmResp='not JSON')
         r = self.agent.decide(d)

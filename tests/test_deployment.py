@@ -14,6 +14,7 @@ from test_agent import payload
 from test_jd_v4 import scene
 from test_task_protocol import SKILL, run_fixture_solver
 from test_task_quality import api, page, execute_helper
+from test_task_environment import run_owned_helper
 from zk_agent.baseline import BaselineAgent
 from zk_agent.config import Config
 from tools.package_submission import build
@@ -79,7 +80,7 @@ class DeploymentTests(unittest.TestCase):
                             time.sleep(0.05)
                     else:
                         self.fail("packaged entry failed to start")
-                    self.assertEqual(status["version"], "v7-jd")
+                    self.assertEqual(status["version"], "v7.1-jd")
                     for round_no in (1, 2, 3):
                         data = payload(round_no, towers=False)
                         data.update(robot=None, teamEnemy=None, phaseTask=None)
@@ -104,17 +105,19 @@ class DeploymentTests(unittest.TestCase):
                         return answer
 
                     self.assertEqual(post_task()['roleCommandMap']['20011']['action'], 'acceptTask')
-                    self.assertEqual(post_task(phaseTask='请阅读task_http.md，获取任务信息')['executeCmd'], 'cat -- task_http.md')
-                    self.assertTrue(post_task(lastCmdResult='[exitCode:0]\n城市历史建筑统计：count=23')['prompt'])
+                    Path(temp, 'task_http.md').write_text('城市历史建筑统计：count=23', encoding='utf-8')
+                    read = post_task(phaseTask='请阅读task_http.md，获取任务信息')['executeCmd']
+                    self.assertTrue(post_task(lastCmdResult=run_owned_helper(read, temp))['prompt'])
                     cmd = post_task(llmResp=json.dumps(SKILL))['executeCmd']
                     answer = post_task(lastCmdResult=run_fixture_solver(cmd))['roleCommandMap']['20011']
                     self.assertEqual(answer['action'], 'submitAnswer')
                     self.assertEqual(json.loads(answer['taskAnswer']), {'count':23})
                     post_task(phaseTask='')
                     with api([page([{'id': 1}], 2), page([{'id': 2}], 2)]) as (plan, calls):
-                        post_task(phaseTask='Read task_api.md')
-                        post_task(lastCmdResult='[exitCode:0]\n查询接口 ' + plan['url'] +
-                                  '\n## 答案格式\n```json\n{"count":0}\n```')
+                        Path(temp, 'task_api.md').write_text('查询接口 ' + plan['url'] +
+                                  '\n## 答案格式\n```json\n{"count":0}\n```', encoding='utf-8')
+                        read = post_task(phaseTask='Read task_api.md')['executeCmd']
+                        post_task(lastCmdResult=run_owned_helper(read, temp))
                         cmd = post_task(llmResp=json.dumps({'action': 'query', 'plan': plan}))['executeCmd']
                         answer = post_task(lastCmdResult=execute_helper(cmd))['roleCommandMap']['20011']
                         self.assertEqual(answer['action'], 'submitAnswer')
