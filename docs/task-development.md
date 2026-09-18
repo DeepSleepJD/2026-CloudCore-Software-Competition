@@ -1,5 +1,22 @@
 # 自主任务能力
 
+## 对战诊断日志（2026-09-18）
+
+默认 INFO 日志现在记录完整任务交互，沿用 `main3.py` 的标准错误输出，无需增加启动参数。保留原有 `task_result=` 汇总，新增 `task_trace=` JSON 事件：
+
+- `task_selected` / `accept_request`：任务元数据、领取回合及平台 `timeoutRounds`。
+- `round_input`：当前阶段、完整 `phaseTask`、`llmResp`、`lastCmdResult`、平台错误、角色位置/血量及动作反馈；在超时、死亡等终态判断前记录，避免丢掉最后一次命令结果。
+- `llm_request` / `command_request` / `submit_request`：完整提示词、实际发出的命令和答案，以及重试反馈。
+- `command_rejected`：分别记录命令类型错误、长度超限、次数耗尽，补充原有汇总原因。
+- `context_trim`：发给模型的上下文被截短或移除旧记录的情况。
+- `finish`：终止原因，区分平台任务超时与本地截止回合判断。
+
+事件包含队伍、任务点、开始/领取回合、阶段、上次发送回合、截止回合及剩余 LLM/命令/提交预算。`round_input.commandTimedOut` 表示沙箱返回 `[TIMEOUT]`；`finish.serverTaskTimeout` 表示平台返回错误码 1。协议不提供实际命令耗时，日志不能据此给出执行秒数。
+
+单个事件超过 4000 字符时，使用 `task_trace_chunk=` 分片保存完整 JSON，避免单行过长。按同一次事件的 `part` 顺序拼接已 JSON 解码的 `data` 字段，再解析拼接后的 JSON；不要只保留一片。日志内容不使用模型上下文的 12000 字符截取，因此可以排查上下文丢失前的原始输出。平台自身的 `[TRUNCATED]` 仍表示源输出不完整。
+
+对战后请保留从 `task_selected` 到 `finish` 的所有日志行（包括分片），最好提供完整客户端日志。本次仅增加诊断，不改变提示词、限次、截止判断或解题策略。
+
 后续调整：夜间清场后的任务窗口、历史耗时估算及当前防御投资顺序见 [火力与任务收益优化](investment-optimization.md)。下文“仅白天做任务”和 50 项测试结果记录的是任务模块初版。
 
 在当前工作区生存优化上增量实现，保留 `main3.py` 入口、HTTP 协议、现有测试及未提交内容。开发开始时生存优化尚未提交，期间本地 HEAD 已推进到 `43126df`；本轮未执行 checkout、reset、stash 或 commit。生存对照使用该最新提交，通过 Git 只读加载，不覆盖工作区。

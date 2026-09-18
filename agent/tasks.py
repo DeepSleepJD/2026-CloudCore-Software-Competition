@@ -33,6 +33,36 @@ class TaskScheduler:
         self.errors = self.w.raw.get("errors") or []
         self.codes = {e.get("errorCode") for e in self.errors}
 
+    def trace(self, event, **details):
+        """Diagnostic only: preserve full payloads, including terminal-round feedback."""
+        if not LOG.isEnabledFor(logging.INFO):
+            return
+        s = self.m["active"] or {}
+        record = {"event": event, "round": self.w.round, "team": self.w.team,
+                  "teamId": self.w.raw.get("teamOur", {}).get("teamId"),
+                  "matchId": self.w.raw.get("matchId"),
+                  "taskKey": s.get("key"), "started": s.get("started"),
+                  "accepted": s.get("accepted"), "stage": s.get("stage"),
+                  "sent": s.get("sent"), "timeoutRounds": s.get("timeout"),
+                  "deadline": s.get("deadline"),
+                  "remainingRounds": s["deadline"] - self.w.round if "deadline" in s else None,
+                  "calls": s.get("calls", 0), "commands": s.get("cmds", 0),
+                  "submissions": s.get("submits", 0),
+                  "remainingCalls": 8 - s.get("calls", 0),
+                  "remainingCommands": 6 - s.get("cmds", 0),
+                  "remainingSubmissions": 3 - s.get("submits", 0), **details}
+        payload = json.dumps(record, ensure_ascii=False)
+        # Keep individual lines manageable without losing long prompts or outputs.
+        if len(payload) <= 4000:
+            LOG.info("task_trace=%s", payload)
+        else:
+            parts = [payload[i:i + 4000] for i in range(0, len(payload), 4000)]
+            for index, part in enumerate(parts, 1):
+                LOG.info("task_trace_chunk=%s", json.dumps(
+                    {"event": event, "round": self.w.round, "teamId": record["teamId"],
+                     "taskKey": s.get("key"), "started": s.get("started"),
+                     "part": index, "parts": len(parts), "data": part}, ensure_ascii=False))
+
     def cells(self, task):
         target = pos(task["taskPosition"])
         # Task point 2 spans two map cells. Metadata may name either one.
@@ -85,6 +115,9 @@ class TaskScheduler:
             if reason == "completed_inferred" and s.get("experience"):
                 self.m["experience"][s["type"]] = s["experience"][:2000]
             LOG.info("task_result=%s", json.dumps(record, ensure_ascii=False))
+            self.trace("finish", reason=reason, errors=self.errors,
+                       serverTaskTimeout=1 in self.codes,
+                       localDeadlineExceeded=s.get("accepted") is not None and self.w.round > s["deadline"])
         self.m["active"] = None
         # An interrupted phase cannot be adopted again before the server clears it.
         self.m["await_clear"] = bool(self.phase)
@@ -108,15 +141,32 @@ class TaskScheduler:
                                "experience": self.m["experience"].get(s["type"], ""),
                                "transcript": s["transcript"], "feedback": feedback}, ensure_ascii=False))
         s["stage"], s["sent"] = "llm", self.w.round
+        self.trace("llm_request", prompt=self.prompt, feedback=feedback)
         return True
 
     def remember(self, kind, value):
         s = self.m["active"]
+        if len(value) > 12000 or len(s["transcript"]) >= 8:
+            self.trace("context_trim", kind=kind, originalChars=len(value),
+                       retainedChars=min(len(value), 12000),
+                       droppedEntries=max(0, len(s["transcript"]) + 1 - 8))
         s["transcript"] = (s["transcript"] + [{kind: value[:12000]}])[-8:]
 
     def run(self):
         """Return True to reserve the pioneer, even when its action is to wait."""
         s = self.m["active"]
+        if s or self.phase or self.w.raw.get("lastCmdResult"):
+            output = self.w.raw.get("lastCmdResult") or ""
+            self.trace("round_input", phaseTask=self.phase,
+                       llmResp=self.w.raw.get("llmResp"), lastCmdResult=output,
+                       commandTimedOut=output.startswith("[TIMEOUT]"),
+                       commandJudgerError=output.startswith("[JUDGER_ERROR]"),
+                       commandOutputTruncated="[TRUNCATED]" in output,
+                       errors=self.errors,
+                       consecutive=self.w.round == s.get("sent", -2) + 1 if s else False,
+                       actorPosition=self.actor.p if self.actor else None,
+                       actorHealth=self.actor.health if self.actor else None,
+                       lastRoundRoleActionResults=self.w.raw.get("lastRoundRoleActionResults", {}))
         if not self.actor:
             if s:
                 self.finish("death")
@@ -160,6 +210,7 @@ class TaskScheduler:
                     s.update(stage="accept", sent=self.w.round, accepted=self.w.round,
                              deadline=self.w.round + s["timeout"])
                     self.p.emit(self.actor, command("acceptTask"))
+                    self.trace("accept_request")
                 else:
                     self.p.approach(self.actor, s["goal"], exact=True)
                 return True
@@ -191,11 +242,15 @@ class TaskScheduler:
                     return self.ask("响应格式错误，必须且只能提供executeCmd或taskAnswer。")
                 if cmd:
                     if not isinstance(cmd, str) or len(cmd) > 12000 or s["cmds"] >= 6:
+                        self.trace("command_rejected", invalidType=not isinstance(cmd, str),
+                                   tooLong=isinstance(cmd, str) and len(cmd) > 12000,
+                                   budgetExhausted=s["cmds"] >= 6)
                         self.finish("command_budget_exhausted")
                         return False
                     self.execute = cmd
                     self.remember("executeCmd", cmd)
                     s.update(stage="cmd", sent=self.w.round, cmds=s["cmds"] + 1)
+                    self.trace("command_request", executeCmd=cmd)
                     return True
                 if not isinstance(answer, str):
                     answer = json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
@@ -206,6 +261,7 @@ class TaskScheduler:
                 self.remember("taskAnswer", answer)
                 self.p.emit(self.actor, command("submitAnswer", taskAnswer=answer))
                 s.update(stage="submit", sent=self.w.round, submits=s["submits"] + 1)
+                self.trace("submit_request", taskAnswer=answer, experience=s["experience"])
                 return True
             if s["stage"] == "cmd":
                 output = self.w.raw.get("lastCmdResult") if consecutive else ""
@@ -266,6 +322,7 @@ class TaskScheduler:
                             "stage": "travel", "started": self.w.round, "timeout": task["timeoutRounds"],
                             "travel_limit": distances[goal] + 6, "calls": 0, "cmds": 0, "submits": 0,
                             "transcript": [], "answers": []}
+        self.trace("task_selected", task=task, goal=goal)
         return self.run()
 
     @staticmethod
