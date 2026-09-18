@@ -37,7 +37,14 @@ for root in roots:
             matches.add(str((Path(base) / name).resolve()))
             if len(matches) > 1:
                 break
-result = {"kind": "task_bootstrap", "files": [], "errors": []}
+result = {"kind": "task_bootstrap", "files": [], "errors": [],
+          "httpContract": {
+              "function": "request_json",
+              "signature": "request_json(url, api_key='', header='X-API-Key')",
+              "example": "request_json('http://localhost:8899/api/...?location=南京', api_key='KEY', header='X-API-Key')",
+              "returns": "{kind:'task_http', ok:bool, status:int, data:any, authHeader:str|null}",
+              "pagination": "Use response total/total_count and offset/limit or page; never infer completion from requested size."
+          }}
 if len(matches) != 1:
     result["errors"].append("Task file missing or ambiguous: " + repr(sorted(matches)))
 else:

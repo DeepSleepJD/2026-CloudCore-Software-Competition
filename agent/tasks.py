@@ -3,7 +3,9 @@ import json
 import logging
 import re
 import shlex
+import copy
 from pathlib import PurePosixPath
+from urllib.parse import urlsplit, urlunsplit
 
 from .model import command, distance, neighbours, pos
 from .navigation import paths
@@ -37,6 +39,91 @@ class TaskScheduler:
         self.errors = self.w.raw.get("errors") or []
         self.codes = {e.get("errorCode") for e in self.errors}
         self.m.setdefault("discoveries", {})
+
+    @staticmethod
+    def _nonempty_answer(value):
+        if not isinstance(value, dict):
+            return bool(str(value).strip())
+        stats = {"total_count", "world_heritage_count", "types", "oldest_era"}
+        return bool(value) and not (stats.issubset(value) and not value.get("total_count")
+                                    and not value.get("world_heritage_count")
+                                    and not value.get("types") and not value.get("oldest_era"))
+
+    def answer_evidence(self, value):
+        """Hard gate: submit only data supported by this task's sandbox output."""
+        s = self.m["active"]
+        evidence = s.get("evidence", {})
+        if not evidence.get("successfulCommand") or evidence.get("invalid"):
+            return False, "没有成功的当前任务命令结果，禁止提交猜测或默认答案。"
+        if not self._nonempty_answer(value):
+            return False, "答案为空或是无证据的全零默认值，禁止提交。"
+        expected, observed = evidence.get("expectedCount"), evidence.get("observedCount")
+        if expected is not None and observed is not None and observed != expected:
+            return False, f"数据不完整：已观察{observed}条，接口声明{expected}条；继续分页后再提交。"
+        if isinstance(value, dict) and expected is not None and "total_count" in value:
+            try:
+                if int(value["total_count"]) != int(expected):
+                    return False, "答案total_count与已验证接口总数不一致。"
+            except (TypeError, ValueError):
+                return False, "答案total_count不是有效数字。"
+        return True, ""
+
+    @staticmethod
+    def _record_payload_evidence(payload, evidence):
+        """Find common nested pagination shapes without retaining records."""
+        pending = [payload]
+        while pending:
+            item = pending.pop()
+            if isinstance(item, dict):
+                for key in ("pagination", "pageInfo"):
+                    page = item.get(key)
+                    if isinstance(page, dict):
+                        for total_key in ("total_count", "totalCount", "total"):
+                            if isinstance(page.get(total_key), int):
+                                evidence["expectedCount"] = page[total_key]
+                        for rows_key in ("records", "items", "data"):
+                            if isinstance(page.get(rows_key), list):
+                                evidence["observedCount"] = len(page[rows_key])
+                for rows_key in ("records", "items"):
+                    if isinstance(item.get(rows_key), list):
+                        evidence["observedCount"] = len(item[rows_key])
+                pending.extend(v for v in item.values() if isinstance(v, (dict, list)))
+            elif isinstance(item, list):
+                pending.extend(v for v in item if isinstance(v, (dict, list)))
+
+    def record_evidence(self, output, body, normal):
+        s = self.m["active"]
+        evidence = s.setdefault("evidence", {})
+        evidence["successfulCommand"] = evidence.get("successfulCommand", False) or bool(normal)
+        if not normal:
+            evidence["invalid"] = True
+            return
+        evidence["invalid"] = False
+        if body.get("kind") == "task_result":
+            result_evidence = body.get("evidence") if isinstance(body.get("evidence"), dict) else {}
+            evidence.update(result_evidence)
+            evidence["explicit"] = body.get("complete") is True
+            if not evidence["explicit"]:
+                evidence["invalid"] = True
+            return
+        if body.get("kind") == "task_http":
+            if body.get("ok") is not True:
+                evidence["invalid"] = True
+            else:
+                self._record_payload_evidence(body.get("data"), evidence)
+                facts = self.m["discoveries"].setdefault(s["type"], {})
+                parsed = urlsplit(body.get("url", ""))
+                facts["querySOP"] = {
+                    "endpoint": urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")),
+                    "authHeader": body.get("authHeader"),
+                    "pagination": {k: evidence[k] for k in ("expectedCount", "observedCount") if k in evidence},
+                }
+        # Also recognize solver-produced text such as total_count=10 and pagination total=15.
+        text = output.partition("\n")[2]
+        counts = [int(x) for x in re.findall(r"[\"']?(?:total_count|totalCount|total)[\"']?\s*[=:]\s*(\d+)", text)]
+        if counts:
+            evidence.setdefault("expectedCount", counts[0] if "pagination" in text.lower() else None)
+            evidence["observedCount"] = counts[-1]
 
     def budget(self):
         s = self.m["active"] or {}
@@ -124,8 +211,10 @@ class TaskScheduler:
                       "errors": self.errors, "passRate": None}
             self.m["history"] = (self.m["history"] + [record])[-40:]
             self.m["backoff"][s["key"]] = self.w.round + 30
-            if reason == "completed_inferred" and s.get("experience"):
+            if s.get("experience"):
                 self.m["experience"][s["type"]] = s["experience"][:2000]
+            if self.m["discoveries"].get(s["type"]):
+                self.m["discoveries"][s["type"]] = copy.deepcopy(self.m["discoveries"][s["type"]])
             LOG.info("task_result=%s", json.dumps(record, ensure_ascii=False))
             self.trace("finish", reason=reason, errors=self.errors,
                        serverTaskTimeout=1 in self.codes,
@@ -161,8 +250,13 @@ class TaskScheduler:
             '任务文档里的测试API凭据可以用于该任务；禁止访问个人凭据。'
             'remainingCommands是当前时间窗口可容纳的后续命令数；为最终提交及反馈预留回合。'
             '为0时仅可提交已有实际数据支持的答案，不能再探索或编造。discoveries只作探索线索，当前输出优先。'
+            '优先返回唯一的task_result：{"task_result":{"complete":true,"answer":{...},'
+            '"evidence":{"observedCount":N,"expectedCount":N,"paginationComplete":true}}}。'
+            '没有完整证据时禁止返回taskAnswer；工具异常、分页未完成、数据为空或总数不一致必须继续查询。'
             '\n' + json.dumps({"phaseTask": self.phase,
-                               **self.budget(), "bootstrap": s.get("bootstrap", {}),
+                               **self.budget(), "bootstrap": {"httpContract": s.get("bootstrap", {}).get("httpContract"),
+                                             "taskFile": s.get("bootstrap", {}).get("taskFile"),
+                                             "files": s.get("bootstrap", {}).get("files", [])},
                                "discoveries": self.m["discoveries"].get(s["type"], {}),
                                "experience": self.m["experience"].get(s["type"], ""),
                                "transcript": s["transcript"], "feedback": feedback}, ensure_ascii=False))
@@ -204,16 +298,18 @@ class TaskScheduler:
             s["bootstrap"] = body
             if body.get("taskFile") and body.get("files"):
                 facts["directory"] = str(PurePosixPath(body["taskFile"]).parent)
+            if body.get("httpContract"):
+                facts["httpContract"] = body["httpContract"]
             return normal and not body.get("errors") and not any(f.get("truncated") for f in body.get("files", []))
         # Store only endpoint/header metadata, never response records, keys or tokens.
         if body.get("kind") == "task_http" and normal and body.get("ok") is True:
-            from urllib.parse import urlsplit, urlunsplit
             parsed = urlsplit(body.get("url", ""))
             facts["http"] = {"endpoint": urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")),
                              "authHeader": body.get("authHeader")}
         message = str(body.get("message", "")).lower()
         if api_failed(body) and "authorization" in message and "bearer" in message:
             facts["authGuidance"] = "服务端曾要求Authorization: Bearer <任务API key>；当前任务需验证。"
+        self.record_evidence(output, body, normal and not api_failed(body))
         return normal and not api_failed(body)
 
     def run(self):
@@ -307,8 +403,18 @@ class TaskScheduler:
                 value = envelope(text)
                 cmd, answer = value.get("executeCmd"), value.get("taskAnswer")
                 http = value.get("httpRequest")
-                if sum((bool(cmd), answer is not None, http is not None)) != 1:
-                    return self.ask("响应格式错误，必须且只能提供executeCmd、httpRequest或taskAnswer。")
+                task_result = value.get("task_result")
+                if isinstance(task_result, dict):
+                    answer = task_result.get("answer")
+                    s["evidence"] = {"successfulCommand": s.get("evidence", {}).get("successfulCommand", False),
+                                      **(task_result.get("evidence") or {}),
+                                      "explicit": task_result.get("complete") is True,
+                                      "invalid": task_result.get("complete") is not True}
+                    if task_result.get("complete") is not True:
+                        return self.ask("task_result证据不完整，继续查询，不能提交。")
+                if sum((bool(cmd), answer is not None and not isinstance(task_result, dict),
+                        http is not None, isinstance(task_result, dict))) != 1:
+                    return self.ask("响应格式错误，必须且只能提供executeCmd、httpRequest、task_result或taskAnswer。")
                 if http is not None:
                     helper = s.get("bootstrap", {}).get("httpHelper")
                     if not helper or not isinstance(http, dict) or not isinstance(http.get("url"), str):
@@ -326,6 +432,13 @@ class TaskScheduler:
                     answer = json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
                 if not answer.strip() or len(answer) > 64000 or answer in s["answers"]:
                     return self.ask("答案为空、过长或与已提交失败的答案重复，请修正。")
+                try:
+                    answer_value = json.loads(answer)
+                except (TypeError, ValueError):
+                    answer_value = answer
+                valid_answer, reason = self.answer_evidence(answer_value)
+                if not valid_answer:
+                    return self.ask(reason)
                 s["answers"].append(answer)
                 s["experience"] = str(value.get("experience", ""))[:2000]
                 self.remember("taskAnswer", answer)

@@ -190,6 +190,27 @@ class SandboxTests(unittest.TestCase):
         response = sim.step(False, llmResp=json.dumps({"taskAnswer": {"token": "observed"}}))
         self.assertEqual("submitAnswer", response["roleCommandMap"][sim.rid]["action"])
 
+    def test_incomplete_pagination_is_rejected_before_submit(self):
+        sim, _ = self.start_task()
+        # Simulate a successful API response that declares 15 rows but only returns 10.
+        partial = {"kind": "task_http", "ok": True, "status": 200,
+                   "url": self.url + "?location=北京&offset=0&limit=10",
+                   "authHeader": "Authorization",
+                   "data": {"data": {"records": [{"id": str(i)} for i in range(10)],
+                                      "pagination": {"total_count": 15, "offset": 0, "limit": 10}}}}
+        sim.step(False, llmResp=json.dumps({"executeCmd": "echo partial"}))
+        sim.step(False, lastCmdResult="[exitCode:0]\n" + json.dumps(partial, ensure_ascii=False))
+        # The scheduler has observed this response; assert the hard gate directly as
+        # well so the regression remains focused even if the simulator skips a round.
+        sim.agent.memory["tasks"]["active"]["evidence"] = {
+            "successfulCommand": True, "expectedCount": 15, "observedCount": 10}
+        response = sim.step(False, llmResp=json.dumps({"taskAnswer": {
+            "city": "北京", "total_count": 15, "world_heritage_count": 6,
+            "types": ["建筑"], "oldest_era": "甲"}}))
+        self.assertTrue(response["prompt"])
+        self.assertIn("数据不完整", response["prompt"])
+        self.assertNotEqual("submitAnswer", response["roleCommandMap"].get(sim.rid, {}).get("action"))
+
     def test_bootstrap_docs_survive_transcript_eviction_and_team_reset(self):
         sim, body = self.start_task()
         state = sim.agent.memory["tasks"]["active"]
