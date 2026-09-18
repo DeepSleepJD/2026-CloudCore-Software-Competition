@@ -19,6 +19,10 @@
 
 测试没有调用真实 LLM 或正式比赛接口；固定模型回复验证的是纠错信息与动作的传递，不是模型在实战中必然理解这些信息。已知本场缺少原始任务交互日志，因此不将本版验证表述为已复现或解决所有实战失败。
 
+## 远端验证：PASS
+
+提交 52cb658 在 Linux/Windows × Python 3.10/3.12 四组全部通过，包括完整测试、12 项变异检查和打包；两组 Linux 的官方 run.sh 入口及 v7.2-jd 健康检查通过。[执行记录](https://github.com/DeepSleepJD/2026-CloudCore-Software-Competition/actions/runs/35344768631)。
+
 ## 提交包
 
 版本 v7.2-jd；源码提交 4c291b13b4604736bdc88d2efa7cf43c8ecbad15。15 个包内源码/说明文件与工作区一致，run.sh 执行位 0755，换行为 LF。CoreGeek-v7.2.tar.gz 与仓库 artifacts/CoreGeek.tar.gz 字节一致，大小 34091 字节，SHA256：`002581a799c81c607020cfca5388921de485f5e5d0ea78eca4eab85ecf51c8e8`。
