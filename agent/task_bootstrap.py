@@ -1,6 +1,8 @@
 """Build a bounded sandbox command; no local task-file reads or execution."""
 import re
 import shlex
+import base64
+import zlib
 from pathlib import Path
 
 
@@ -92,6 +94,8 @@ def bootstrap_command(description, directory=None):
     if len(names) != 1:
         return ""
     config = {"name": names[0], "directory": directory,
-              "httpSource": Path(__file__).with_name("sandbox_http.py").read_text(encoding="utf-8")}
+              "httpSource": Path(__file__).with_name("sandbox_http.py").read_text(encoding="utf-8")
+                  + '\n' + Path(__file__).with_name('task_sop.py').read_text(encoding='utf-8')}
     source = "CONFIG = " + repr(config) + "\n" + SCRIPT
-    return "python3 -c " + shlex.quote(source)
+    encoded = base64.b64encode(zlib.compress(source.encode('utf-8'))).decode('ascii')
+    return "python3 -c " + shlex.quote("import base64,zlib;exec(zlib.decompress(base64.b64decode(%r)))" % encoded)

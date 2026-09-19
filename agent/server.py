@@ -4,6 +4,7 @@ import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
 from .strategy import Agent
+from .build_info import BUILD
 
 LOG = logging.getLogger(__name__)
 EMPTY = {"roleCommandMap": {}, "prompt": "", "executeCmd": ""}
@@ -14,6 +15,7 @@ class AgentServer(ThreadingHTTPServer):
 
     def __init__(self, address):
         super().__init__(address, Handler)
+        LOG.info('agent_build=%s', json.dumps(BUILD, ensure_ascii=False))
         self.agent = Agent()
         self.decision_lock = Lock()
 

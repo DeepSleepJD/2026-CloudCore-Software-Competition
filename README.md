@@ -22,6 +22,30 @@ python main3.py 8080
 部署时将 `run.sh`、`main3.py`、`agent/` 放在同一目录；运行不依赖本仓库外的 Demo、docs 或 replay。
 平台日志显示其实际启动入口为 `/home/docker/CoreGeek/main3.py`，上传后须确保该路径存在。
 
+### 自进化任务与部署核对（2026-09-19）
+
+固定提示词位于 `agent/task_prompt.py`，动态任务上下文由 `agent/tasks.py` 的 `ask()` 追加。
+当前操作为 `httpRequest`、`runSop`、`executeCmd`、`taskAnswer`，只能选择一种；模型提供的证据不会覆盖程序观察结果。
+
+文化遗产查询首次从真实 HTTP 响应学习参数名、认证头、记录路径及 offset/limit 分页结构。
+`runSop` 根据当前任务文件核对城市，在沙盒执行 `agent/task_sop.py` 中的固定分页统计程序；
+客户端重新核对每页、唯一ID、总数、记录字段并计算答案，成功后直接提交，不再经过一轮模型改写。
+同类后续任务复用方法，但重新读取本题文件和全部数据；不会保存或复用旧城市答案/API key。
+环境修复任务支持原样提交沙盒 JSON token，或校验含实际检查器 `TOKEN=...` 输出的结构化结果后直接提交。
+
+上传前在项目根目录运行：
+
+```powershell
+python -X utf8 -B -m agent.build_info
+```
+
+启动日志 `agent_build=` 会输出 `buildId`、实际入口路径、模块根目录和源文件 SHA-256；任务日志也带相同 `buildId`。
+上传完整 `agent/`、`main3.py` 和 `run.sh`，重启后核对平台日志的 `buildId` 与本地一致。
+指纹由文件内容生成，不依赖平台保留 `.git`。仅修改本地文件不能确认平台版本已更新。
+
+验证说明见 `docs/task-fix-20260919.md`。固定SOP目前支持已观察到的文化遗产 records/pagination 结构；
+未知结构、未知年代或最早年代出现歧义时会停止提交并提供错误，不能以猜测结果通过校验。
+
 ## 当前策略
 
 - 从基地实际坐标判断左右侧，不依赖 teamA/teamB 字符串或固定角色 ID。

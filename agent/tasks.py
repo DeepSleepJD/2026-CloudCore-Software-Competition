@@ -11,6 +11,9 @@ from .model import command, distance, neighbours, pos
 from .navigation import paths
 from .task_bootstrap import bootstrap_command
 from .sandbox_http import api_failed
+from .task_sop import learn_sop, validate_pages
+from .task_prompt import TASK_PROMPT
+from .build_info import BUILD
 
 LOG = logging.getLogger(__name__)
 INF = 10**6
@@ -66,6 +69,8 @@ class TaskScheduler:
                     return False, "答案total_count与已验证接口总数不一致。"
             except (TypeError, ValueError):
                 return False, "答案total_count不是有效数字。"
+        if 'verifiedAnswer' not in s or json.dumps(value, sort_keys=True) != json.dumps(s['verifiedAnswer'], sort_keys=True):
+            return False, "答案必须与当前任务沙盒已验证输出一致，禁止模型修改或猜测。"
         return True, ""
 
     @staticmethod
@@ -93,45 +98,56 @@ class TaskScheduler:
 
     def record_evidence(self, output, body, normal):
         s = self.m["active"]
-        evidence = s.setdefault("evidence", {})
-        evidence["successfulCommand"] = evidence.get("successfulCommand", False) or bool(normal)
-        if not normal:
-            evidence["invalid"] = True
+        s.pop('verifiedAnswer', None)
+        evidence = s['evidence'] = {'successfulCommand': False, 'invalid': True}
+        if not normal or not body:
             return
-        evidence["invalid"] = False
         if body.get("kind") == "task_result":
-            result_evidence = body.get("evidence") if isinstance(body.get("evidence"), dict) else {}
-            evidence.update(result_evidence)
-            evidence["explicit"] = body.get("complete") is True
-            if not evidence["explicit"]:
-                evidence["invalid"] = True
+            try:
+                if body.get('complete') is not True:
+                    raise ValueError('Incomplete result')
+                if s.get('sopRun'):
+                    config, city = s['sopRun']['config'], s['sopRun']['city']
+                    answer, verified = validate_pages(config, city, body.get('pages'))
+                    if json.dumps(answer, sort_keys=True) != json.dumps(body.get('answer'), sort_keys=True):
+                        raise ValueError('Answer disagrees with records')
+                    evidence.update(verified)
+                    self.m['discoveries'].setdefault(s['type'], {})['sop'] = copy.deepcopy(config)
+                else:
+                    answer = body.get('answer')
+                    tokens = re.findall(r'(?m)^TOKEN\s*[:=]\s*([A-Za-z0-9_-]+)\s*$',
+                                        str(body.get('checkerOutput', '')))
+                    if not tokens or len(set(tokens)) != 1 or answer != {'token': tokens[0]}:
+                        raise ValueError('Result requires original pages or checker TOKEN output')
+                    evidence.update(successfulCommand=True, invalid=False)
+                s['verifiedAnswer'] = answer
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                evidence['invalid'] = True
+                self.trace('evidence_rejected', reason=str(exc))
             return
         if body.get("kind") == "task_http":
-            if body.get("ok") is not True:
-                evidence["invalid"] = True
-            else:
+            if body.get("ok") is True:
                 self._record_payload_evidence(body.get("data"), evidence)
-                facts = self.m["discoveries"].setdefault(s["type"], {})
-                parsed = urlsplit(body.get("url", ""))
-                facts["querySOP"] = {
-                    "endpoint": urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")),
-                    "authHeader": body.get("authHeader"),
-                    "pagination": {k: evidence[k] for k in ("expectedCount", "observedCount") if k in evidence},
-                }
-        # Also recognize solver-produced text such as total_count=10 and pagination total=15.
-        text = output.partition("\n")[2]
-        counts = [int(x) for x in re.findall(r"[\"']?(?:total_count|totalCount|total)[\"']?\s*[=:]\s*(\d+)", text)]
-        if counts:
-            evidence.setdefault("expectedCount", counts[0] if "pagination" in text.lower() else None)
-            evidence["observedCount"] = counts[-1]
+                try:
+                    sop = learn_sop(body)
+                except (KeyError, TypeError, ValueError):
+                    sop = None
+                if sop:
+                    self.m['discoveries'].setdefault(s['type'], {})['sop'] = sop
+            return
+        # A raw final JSON token is also usable, but arbitrary statistics aren't proof.
+        if set(body) == {'token'} and isinstance(body['token'], str) and body['token']:
+            s['verifiedAnswer'] = body
+            evidence.update(successfulCommand=True, invalid=False)
 
     def budget(self):
         s = self.m["active"] or {}
         remaining = max(0, s.get("deadline", self.w.round) - self.w.round)
-        # From a prompt: command next round, result +2, submit +3, feedback +4.
+        # SOP: command +1, verified result and submit +2, feedback +3.
         return {"remainingRounds": remaining,
                 "remainingCalls": max(0, remaining - 2),
-                "remainingCommands": max(0, (remaining - 3) // 2),
+                "remainingCommands": max(0, (remaining - 2) // 2),
+                "remainingScriptCommands": max(0, (remaining - 3) // 2),
                 "remainingSubmissions": max(0, 3 - s.get("submits", 0))}
 
     def trace(self, event, **details):
@@ -139,7 +155,7 @@ class TaskScheduler:
         if not LOG.isEnabledFor(logging.INFO):
             return
         s = self.m["active"] or {}
-        record = {"event": event, "round": self.w.round, "team": self.w.team,
+        record = {"event": event, "buildId": BUILD['buildId'], "round": self.w.round, "team": self.w.team,
                   "teamId": self.w.raw.get("teamOur", {}).get("teamId"),
                   "matchId": self.w.raw.get("matchId"),
                   "taskKey": s.get("key"), "started": s.get("started"),
@@ -232,29 +248,9 @@ class TaskScheduler:
             self.finish("insufficient_rounds")
             return False
         s["calls"] += 1
-        self.prompt = (
-            '你是比赛沙盒任务求解器。仅返回一个JSON对象：'
-            '{"executeCmd":"shell命令"} 或 {"taskAnswer":"严格按任务要求的最终答案",'
-            '"experience":"可复用方法，不含本次答案"}，或'
-            '{"httpRequest":{"url":"任务API完整URL","apiKey":"任务文档提供的key","header":"认证头名称"}}。三种操作只能选一种。'
-            '先读取任务指定文件和API文档，基于实际输出求解，禁止猜测文件内容、token或复用旧答案。'
-            '命令仅在隔离的比赛沙盒运行，无外网，支持shell/python，15秒上限；'
-            '命令应有界、可重复执行，优先只读；不要访问个人凭据。'
-            '错误/截断输出不能当成功；截断时缩小查询或分页。答案若为JSON可将taskAnswer设为对象。'
-            'bootstrap包含已读取的当前任务与API文档，不要重复读取。文档可能过时，以实际返回为准。'
-            'HTTP首次探测优先用httpRequest：程序编码中文查询、检查业务错误，并按服务端明确提示修正Bearer认证。'
-            '得到真实响应结构后再统计；先验证成功状态、记录必须为对象列表；禁止把错误字典当记录遍历。'
-            '分页必须依据实际响应验证完整性、去重、限制页数，缺页不能当完整结果；字段名不能靠猜。'
-            '可在一次executeCmd的Python脚本中用runpy.run_path(httpHelper)取得request_json，完成分页与统计，'
-            '每次检查ok后才读取data。httpHelper见bootstrap。长脚本用heredoc，避免嵌套引号。'
-            '任务文档里的测试API凭据可以用于该任务；禁止访问个人凭据。'
-            'remainingCommands是当前时间窗口可容纳的后续命令数；为最终提交及反馈预留回合。'
-            '为0时仅可提交已有实际数据支持的答案，不能再探索或编造。discoveries只作探索线索，当前输出优先。'
-            '优先返回唯一的task_result：{"task_result":{"complete":true,"answer":{...},'
-            '"evidence":{"observedCount":N,"expectedCount":N,"paginationComplete":true}}}。'
-            '没有完整证据时禁止返回taskAnswer；工具异常、分页未完成、数据为空或总数不一致必须继续查询。'
-            '\n' + json.dumps({"phaseTask": self.phase,
+        self.prompt = (TASK_PROMPT.replace('\n', ' ') + '\n' + json.dumps({"phaseTask": self.phase,
                                **self.budget(), "bootstrap": {"httpContract": s.get("bootstrap", {}).get("httpContract"),
+                                             "httpHelper": s.get("bootstrap", {}).get("httpHelper"),
                                              "taskFile": s.get("bootstrap", {}).get("taskFile"),
                                              "files": s.get("bootstrap", {}).get("files", [])},
                                "discoveries": self.m["discoveries"].get(s["type"], {}),
@@ -273,11 +269,11 @@ class TaskScheduler:
         retained = value if len(value) <= 12000 else value[:12000] + "\n[CONTEXT_TRUNCATED]"
         s["transcript"] = (s["transcript"] + [{kind: retained}])[-8:]
 
-    def send_command(self, cmd, bootstrap=False):
+    def send_command(self, cmd, bootstrap=False, direct=False):
         s = self.m["active"]
         if not isinstance(cmd, str) or len(cmd) > 16000:
             return self.ask("命令格式错误或超过16000字符，请缩短。")
-        if s["deadline"] - self.w.round < 4:
+        if s["deadline"] - self.w.round < (3 if direct else 4):
             self.trace("command_rejected", reason="insufficient_rounds")
             return self.ask("剩余回合不足以执行命令并提交；只能使用已有实际数据生成答案。")
         self.execute = cmd
@@ -286,6 +282,58 @@ class TaskScheduler:
         s.update(stage="cmd", sent=self.w.round, cmds=s["cmds"] + 1,
                  bootstrapPending=bootstrap)
         self.trace("command_request", executeCmd=cmd, bootstrap=bootstrap)
+        return True
+
+    def run_sop(self, params):
+        s = self.m['active']
+        config = self.m['discoveries'].get(s['type'], {}).get('sop')
+        bootstrap = s.get('bootstrap', {})
+        helper = bootstrap.get('httpHelper')
+        if (not isinstance(params, dict) or not config or not helper
+                or not isinstance(params.get('city'), str) or not params['city']
+                or not isinstance(params.get('apiKey'), str)):
+            return self.ask('runSop需要已发现的SOP、当前city和apiKey；先使用httpRequest探索真实结构。')
+        task_text = next((f['text'] for f in bootstrap.get('files', [])
+                          if f.get('path') == bootstrap.get('taskFile')), '')
+        city_match = re.search(r'查询\s*([\u4e00-\u9fff]{2,12}?)(?:市)?(?:的)?(?:全部)?文化遗产', task_text)
+        if (not city_match or params['city'].removesuffix('市') != city_match.group(1)
+                or 'world_heritage_count' not in task_text):
+            return self.ask('runSop城市或统计类型未在本题任务文件中确认，请核对任务。')
+        source = ("import runpy,json,signal\n"
+                  "if hasattr(signal,'alarm'): signal.alarm(12)\n"
+                  "h=runpy.run_path(%r)\n"
+                  "result=h['solve_sop'](%r,%r,%r,h['request_json'])\n"
+                  "print(json.dumps(result,ensure_ascii=False))" %
+                  (helper, config, params['city'], params['apiKey']))
+        cmd = shlex.join(['python3', '-c', source])
+        accepted = self.send_command(cmd, direct=True)
+        if self.execute == cmd:
+            s['sopRun'] = {'config': copy.deepcopy(config), 'city': params['city']}
+        return accepted
+
+    def submit_verified(self, answer, experience=''):
+        s = self.m['active']
+        if isinstance(answer, str):
+            try:
+                answer = json.loads(answer)
+            except ValueError:
+                pass
+        valid, reason = self.answer_evidence(answer)
+        if not valid:
+            self.trace('answer_rejected', reason=reason, evidence=s.get('evidence'))
+            return self.ask(reason)
+        wire = answer if isinstance(answer, str) else json.dumps(answer, ensure_ascii=False, separators=(',', ':'))
+        if not wire.strip() or len(wire) > 64000 or wire in s['answers']:
+            return self.ask('答案为空、过长或与已提交失败答案重复；请重新验证。')
+        if s['submits'] >= 3 or s['deadline'] - self.w.round < 2:
+            self.finish('insufficient_rounds' if s['submits'] < 3 else 'retry_exhausted')
+            return False
+        s['answers'].append(wire)
+        s['experience'] = str(experience)[:2000]
+        self.remember('taskAnswer', wire)
+        self.p.emit(self.actor, command('submitAnswer', taskAnswer=wire))
+        s.update(stage='submit', sent=self.w.round, submits=s['submits'] + 1)
+        self.trace('submit_request', taskAnswer=wire, evidence=s.get('evidence'))
         return True
 
     def observe_output(self, output):
@@ -310,7 +358,8 @@ class TaskScheduler:
         if api_failed(body) and "authorization" in message and "bearer" in message:
             facts["authGuidance"] = "服务端曾要求Authorization: Bearer <任务API key>；当前任务需验证。"
         self.record_evidence(output, body, normal and not api_failed(body))
-        return normal and not api_failed(body)
+        return normal and bool(body) and not api_failed(body) and (
+            body.get('kind') == 'task_http' or not s.get('evidence', {}).get('invalid'))
 
     def run(self):
         """Return True to reserve the pioneer, even when its action is to wait."""
@@ -403,18 +452,16 @@ class TaskScheduler:
                 value = envelope(text)
                 cmd, answer = value.get("executeCmd"), value.get("taskAnswer")
                 http = value.get("httpRequest")
+                sop = value.get('runSop')
                 task_result = value.get("task_result")
                 if isinstance(task_result, dict):
                     answer = task_result.get("answer")
-                    s["evidence"] = {"successfulCommand": s.get("evidence", {}).get("successfulCommand", False),
-                                      **(task_result.get("evidence") or {}),
-                                      "explicit": task_result.get("complete") is True,
-                                      "invalid": task_result.get("complete") is not True}
-                    if task_result.get("complete") is not True:
-                        return self.ask("task_result证据不完整，继续查询，不能提交。")
+                    # Compatibility only: a model's evidence is never authoritative.
                 if sum((bool(cmd), answer is not None and not isinstance(task_result, dict),
-                        http is not None, isinstance(task_result, dict))) != 1:
-                    return self.ask("响应格式错误，必须且只能提供executeCmd、httpRequest、task_result或taskAnswer。")
+                        http is not None, sop is not None, isinstance(task_result, dict))) != 1:
+                    return self.ask("响应格式错误，只能提供executeCmd、httpRequest、runSop或taskAnswer中的一种。")
+                if sop is not None:
+                    return self.run_sop(sop)
                 if http is not None:
                     helper = s.get("bootstrap", {}).get("httpHelper")
                     if not helper or not isinstance(http, dict) or not isinstance(http.get("url"), str):
@@ -427,25 +474,9 @@ class TaskScheduler:
                             args.extend([flag, http[field]])
                     cmd = shlex.join(args)
                 if cmd:
+                    s.pop('sopRun', None)
                     return self.send_command(cmd)
-                if not isinstance(answer, str):
-                    answer = json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
-                if not answer.strip() or len(answer) > 64000 or answer in s["answers"]:
-                    return self.ask("答案为空、过长或与已提交失败的答案重复，请修正。")
-                try:
-                    answer_value = json.loads(answer)
-                except (TypeError, ValueError):
-                    answer_value = answer
-                valid_answer, reason = self.answer_evidence(answer_value)
-                if not valid_answer:
-                    return self.ask(reason)
-                s["answers"].append(answer)
-                s["experience"] = str(value.get("experience", ""))[:2000]
-                self.remember("taskAnswer", answer)
-                self.p.emit(self.actor, command("submitAnswer", taskAnswer=answer))
-                s.update(stage="submit", sent=self.w.round, submits=s["submits"] + 1)
-                self.trace("submit_request", taskAnswer=answer, experience=s["experience"])
-                return True
+                return self.submit_verified(answer, value.get('experience', ''))
             if s["stage"] == "cmd":
                 output = self.w.raw.get("lastCmdResult") if consecutive else ""
                 if output:
@@ -453,6 +484,9 @@ class TaskScheduler:
                     ok = self.observe_output(output)
                     if not bootstrap or not s.get("bootstrap"):
                         self.remember("lastCmdResult", output)
+                    body = envelope(output.partition('\n')[2])
+                    if ok and body.get('kind') == 'task_result' and 'verifiedAnswer' in s:
+                        return self.submit_verified(s['verifiedAnswer'], '使用已验证的SOP读取当前任务数据并校验结果。')
                     return self.ask("命令正常完成，请根据实际输出继续。" if ok else
                                     "命令或API业务失败/超时/判题异常/截断；检查状态码、认证和类型，不能将部分输出当完整答案。")
                 if self.w.round - s["sent"] >= 2:

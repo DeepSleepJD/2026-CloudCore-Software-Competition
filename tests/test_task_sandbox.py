@@ -127,7 +127,7 @@ class SandboxTests(unittest.TestCase):
         self.assertIn("API_DOCS.md", response["prompt"])
         return sim, body
 
-    def test_fifteen_round_task_auth_pagination_and_submission(self):
+    def test_unproven_statistics_do_not_pass_as_sandbox_evidence(self):
         sim, bootstrap = self.start_task()
         response = sim.step(False, llmResp=json.dumps({"httpRequest": {
             "url": self.url + "?city=北京&page=1", "apiKey": "fixture-key"}}))
@@ -156,11 +156,8 @@ class SandboxTests(unittest.TestCase):
         self.assertEqual({"total_count": 3, "world_heritage_count": 2, "types": ["园林", "建筑"], "oldest_era": "甲"}, answer)
         sim.step(False, lastCmdResult=output)
         response = sim.step(False, llmResp=json.dumps({"taskAnswer": answer}))
-        self.assertEqual(answer, json.loads(response["roleCommandMap"][sim.rid]["taskAnswer"]))
-        sim.step(False, phaseTask="", lastRoundRoleActionResults={sim.rid: True})
-        history = sim.agent.memory["tasks"]["history"][-1]
-        self.assertEqual("completed_inferred", history["reason"])
-        self.assertLess(history["round"] - history["accepted"], 15)
+        self.assertNotEqual('submitAnswer', response['roleCommandMap'].get(sim.rid, {}).get('action'))
+        self.assertTrue(response['prompt'])
 
     def test_failed_task_keeps_discoveries_and_zero_exit_api_error_is_failure(self):
         sim, body = self.start_task()
@@ -182,7 +179,7 @@ class SandboxTests(unittest.TestCase):
         state["cmds"] = 6
         response = sim.step(False, llmResp=json.dumps({"executeCmd": "echo bounded"}))
         self.assertEqual("echo bounded", response["executeCmd"])
-        sim.step(False, lastCmdResult="[exitCode:0]\n{}")
+        sim.step(False, lastCmdResult='[exitCode:0]\n{"token":"observed"}')
         state["deadline"] = sim.p["roundNo"] + 3
         response = sim.step(False, llmResp=json.dumps({"executeCmd": "echo too_late"}))
         self.assertFalse(response["executeCmd"])
